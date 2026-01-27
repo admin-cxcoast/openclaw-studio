@@ -1,19 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CanvasViewport } from "../src/components/CanvasViewport";
-import { HeaderBar } from "../src/components/HeaderBar";
-import { extractText } from "../src/lib/text/extractText";
-import { useGatewayConnection } from "../src/lib/gateway/useGatewayConnection";
-import type { EventFrame } from "../src/lib/gateway/frames";
+import { CanvasViewport } from "@/features/canvas/components/CanvasViewport";
+import { HeaderBar } from "@/features/canvas/components/HeaderBar";
+import { extractText } from "@/lib/text/extractText";
+import { useGatewayConnection } from "@/lib/gateway/useGatewayConnection";
+import type { EventFrame } from "@/lib/gateway/frames";
 import {
   AgentCanvasProvider,
   getActiveProject,
   useAgentCanvasStore,
-} from "../src/state/store";
-import { createProjectDiscordChannel } from "../src/lib/projects/client";
-import type { AgentTile, ProjectRuntime } from "../src/state/store";
-import { CANVAS_BASE_ZOOM } from "../src/lib/canvasDefaults";
+} from "@/features/canvas/state/store";
+import { createProjectDiscordChannel } from "@/lib/projects/client";
+import type { AgentTile, ProjectRuntime } from "@/features/canvas/state/store";
+import { CANVAS_BASE_ZOOM } from "@/lib/canvasDefaults";
 
 type ChatEventPayload = {
   runId: string;
@@ -363,11 +363,12 @@ const AgentCanvasPage = () => {
   );
 
   useEffect(() => {
+    const polls = historyPollsRef.current;
     return () => {
-      for (const timeoutId of historyPollsRef.current.values()) {
+      for (const timeoutId of polls.values()) {
         window.clearTimeout(timeoutId);
       }
-      historyPollsRef.current.clear();
+      polls.clear();
     };
   }, []);
 

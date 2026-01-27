@@ -2,7 +2,7 @@ import type React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentTile as AgentTileType, TilePosition, TileSize } from "../state/store";
+import type { AgentTile as AgentTileType, TilePosition, TileSize } from "@/features/canvas/state/store";
 
 const MIN_SIZE = { width: 560, height: 440 };
 

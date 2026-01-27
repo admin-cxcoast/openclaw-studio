@@ -4,16 +4,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { ProjectTileRenamePayload } from "../../../../../../src/lib/projects/types";
-import { resolveAgentWorkspaceDir } from "../../../../../../src/lib/projects/agentWorkspace";
+import { logger } from "@/lib/logger";
+import type { ProjectTileRenamePayload } from "@/lib/projects/types";
+import { resolveAgentWorkspaceDir } from "@/lib/projects/agentWorkspace";
 import {
   loadClawdbotConfig,
   removeAgentEntry,
   renameAgentEntry,
   saveClawdbotConfig,
   upsertAgentEntry,
-} from "../../../../../../src/lib/clawdbot/config";
-import { generateAgentId } from "../../../../../../src/lib/ids/agentId";
+} from "@/lib/clawdbot/config";
+import { generateAgentId } from "@/lib/ids/agentId";
 import { loadStore, saveStore } from "../../../store";
 
 export const runtime = "nodejs";
@@ -77,7 +78,7 @@ export async function DELETE(
     return NextResponse.json({ store: nextStore, warnings });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to delete tile.";
-    console.error(message);
+    logger.error(message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -208,7 +209,7 @@ export async function PATCH(
     return NextResponse.json({ store: nextStore, warnings });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to rename tile.";
-    console.error(message);
+    logger.error(message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

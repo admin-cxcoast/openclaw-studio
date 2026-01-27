@@ -4,12 +4,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { logger } from "@/lib/logger";
 import {
   loadClawdbotConfig,
   removeAgentEntry,
   saveClawdbotConfig,
-} from "../../../../src/lib/clawdbot/config";
-import { resolveAgentWorkspaceDir } from "../../../../src/lib/projects/agentWorkspace";
+} from "@/lib/clawdbot/config";
+import { resolveAgentWorkspaceDir } from "@/lib/projects/agentWorkspace";
 import { loadStore, saveStore } from "../store";
 
 export const runtime = "nodejs";
@@ -67,7 +68,7 @@ export async function DELETE(
     return NextResponse.json({ store: nextStore, warnings });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to delete workspace.";
-    console.error(message);
+    logger.error(message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -2,6 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { env } from "@/lib/env";
+
 type ClawdbotConfig = Record<string, unknown>;
 
 type AgentEntry = {
@@ -25,7 +27,7 @@ const resolveUserPath = (input: string) => {
 };
 
 const resolveStateDir = () => {
-  const raw = process.env.MOLTBOT_STATE_DIR ?? process.env.CLAWDBOT_STATE_DIR;
+  const raw = env.MOLTBOT_STATE_DIR ?? env.CLAWDBOT_STATE_DIR;
   if (raw?.trim()) {
     return resolveUserPath(raw);
   }
@@ -33,16 +35,16 @@ const resolveStateDir = () => {
 };
 
 const resolveConfigPathCandidates = () => {
-  const explicit = process.env.MOLTBOT_CONFIG_PATH ?? process.env.CLAWDBOT_CONFIG_PATH;
+  const explicit = env.MOLTBOT_CONFIG_PATH ?? env.CLAWDBOT_CONFIG_PATH;
   if (explicit?.trim()) {
     return [resolveUserPath(explicit)];
   }
   const candidates: string[] = [];
-  if (process.env.MOLTBOT_STATE_DIR?.trim()) {
-    candidates.push(path.join(resolveUserPath(process.env.MOLTBOT_STATE_DIR), CONFIG_FILENAME));
+  if (env.MOLTBOT_STATE_DIR?.trim()) {
+    candidates.push(path.join(resolveUserPath(env.MOLTBOT_STATE_DIR), CONFIG_FILENAME));
   }
-  if (process.env.CLAWDBOT_STATE_DIR?.trim()) {
-    candidates.push(path.join(resolveUserPath(process.env.CLAWDBOT_STATE_DIR), CONFIG_FILENAME));
+  if (env.CLAWDBOT_STATE_DIR?.trim()) {
+    candidates.push(path.join(resolveUserPath(env.CLAWDBOT_STATE_DIR), CONFIG_FILENAME));
   }
   candidates.push(path.join(os.homedir(), NEW_STATE_DIRNAME, CONFIG_FILENAME));
   candidates.push(path.join(os.homedir(), LEGACY_STATE_DIRNAME, CONFIG_FILENAME));

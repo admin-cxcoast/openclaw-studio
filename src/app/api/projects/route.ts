@@ -5,14 +5,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { logger } from "@/lib/logger";
 import type {
   Project,
   ProjectCreatePayload,
   ProjectCreateResult,
   ProjectsStore,
-} from "../../../src/lib/projects/types";
-import { ensureGitRepo } from "../../../src/lib/fs/git";
-import { slugifyProjectName } from "../../../src/lib/ids/slugify";
+} from "@/lib/projects/types";
+import { ensureGitRepo } from "@/lib/fs/git";
+import { slugifyProjectName } from "@/lib/ids/slugify";
 import { loadStore, saveStore } from "./store";
 
 export const runtime = "nodejs";
@@ -37,7 +38,7 @@ export async function GET() {
     return NextResponse.json(store);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to load workspaces.";
-    console.error(message);
+    logger.error(message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -84,7 +85,7 @@ export async function POST(request: Request) {
     saveStore(nextStore);
 
     if (warnings.length > 0) {
-      console.warn(`Workspace created with warnings: ${warnings.join(" ")}`);
+      logger.warn(`Workspace created with warnings: ${warnings.join(" ")}`);
     }
 
     const result: ProjectCreateResult = {
@@ -95,7 +96,7 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to create workspace.";
-    console.error(message);
+    logger.error(message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -111,7 +112,7 @@ export async function PUT(request: Request) {
     return NextResponse.json(normalized);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to save workspaces.";
-    console.error(message);
+    logger.error(message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

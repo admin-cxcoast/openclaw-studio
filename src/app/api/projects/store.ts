@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-import type { Project, ProjectsStore } from "../../../src/lib/projects/types";
+import type { Project, ProjectsStore } from "@/lib/projects/types";
 
 const STORE_VERSION: ProjectsStore["version"] = 2;
 const STORE_DIR = path.join(os.homedir(), ".clawdbot", "agent-canvas");

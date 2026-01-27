@@ -1,4 +1,4 @@
-import type { GatewayStatus } from "../lib/gateway/GatewayClient";
+import type { GatewayStatus } from "@/lib/gateway/GatewayClient";
 
 type HeaderBarProps = {
   projects: Array<{ id: string; name: string }>;

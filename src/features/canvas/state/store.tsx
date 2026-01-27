@@ -11,8 +11,8 @@ import {
   type ReactNode,
 } from "react";
 
-import type { Project, ProjectTile, ProjectsStore } from "../lib/projects/types";
-import { CANVAS_BASE_ZOOM } from "../lib/canvasDefaults";
+import type { Project, ProjectTile, ProjectsStore } from "@/lib/projects/types";
+import { CANVAS_BASE_ZOOM } from "@/lib/canvasDefaults";
 import {
   createProjectTile as apiCreateProjectTile,
   createProject as apiCreateProject,
@@ -22,7 +22,7 @@ import {
   openProject as apiOpenProject,
   renameProjectTile as apiRenameProjectTile,
   saveProjectsStore,
-} from "../lib/projects/client";
+} from "@/lib/projects/client";
 
 export type AgentStatus = "idle" | "running" | "error";
 

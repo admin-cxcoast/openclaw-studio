@@ -5,20 +5,21 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { logger } from "@/lib/logger";
 import type {
   ProjectTile,
   ProjectTileCreatePayload,
   ProjectTileCreateResult,
   ProjectTileRole,
   ProjectsStore,
-} from "../../../../../src/lib/projects/types";
-import { resolveAgentWorkspaceDir } from "../../../../../src/lib/projects/agentWorkspace";
+} from "@/lib/projects/types";
+import { resolveAgentWorkspaceDir } from "@/lib/projects/agentWorkspace";
 import {
   loadClawdbotConfig,
   saveClawdbotConfig,
   upsertAgentEntry,
-} from "../../../../../src/lib/clawdbot/config";
-import { generateAgentId } from "../../../../../src/lib/ids/agentId";
+} from "@/lib/clawdbot/config";
+import { generateAgentId } from "@/lib/ids/agentId";
 import { loadStore, saveStore } from "../../store";
 
 export const runtime = "nodejs";
@@ -219,7 +220,7 @@ export async function POST(
       warnings.push(`Agent config not updated: ${message}`);
     }
     if (warnings.length > 0) {
-      console.warn(`Tile created with warnings: ${warnings.join(" ")}`);
+      logger.warn(`Tile created with warnings: ${warnings.join(" ")}`);
     }
 
     const result: ProjectTileCreateResult = {
@@ -230,7 +231,7 @@ export async function POST(
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to create tile.";
-    console.error(message);
+    logger.error(message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

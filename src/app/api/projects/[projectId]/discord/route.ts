@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { createDiscordChannelForAgent } from "../../../../../src/lib/discord/discordChannel";
-import { resolveAgentWorkspaceDir } from "../../../../../src/lib/projects/agentWorkspace";
+import { logger } from "@/lib/logger";
+import { createDiscordChannelForAgent } from "@/lib/discord/discordChannel";
+import { resolveAgentWorkspaceDir } from "@/lib/projects/agentWorkspace";
 import { loadStore } from "../../store";
 
 export const runtime = "nodejs";
@@ -50,7 +51,7 @@ export async function POST(
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to create Discord channel.";
-    console.error(message);
+    logger.error(message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

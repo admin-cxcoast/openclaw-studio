@@ -1,6 +1,6 @@
 import type React from "react";
 import { useCallback, useMemo, useRef } from "react";
-import type { AgentTile, CanvasTransform, TilePosition, TileSize } from "../state/store";
+import type { AgentTile, CanvasTransform, TilePosition, TileSize } from "@/features/canvas/state/store";
 import { AgentTile as AgentTileComponent } from "./AgentTile";
 
 type CanvasViewportProps = {

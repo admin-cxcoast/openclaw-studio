@@ -1,4 +1,4 @@
-import { createDiscordChannelForAgent } from "../src/lib/discord/discordChannel";
+import { createDiscordChannelForAgent } from "@/lib/discord/discordChannel";
 
 const args = new Map<string, string>();
 for (const entry of process.argv.slice(2)) {

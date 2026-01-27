@@ -5,12 +5,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { logger } from "@/lib/logger";
 import type {
   Project,
   ProjectOpenPayload,
   ProjectOpenResult,
   ProjectsStore,
-} from "../../../../src/lib/projects/types";
+} from "@/lib/projects/types";
 import { loadStore, saveStore } from "../store";
 
 export const runtime = "nodejs";
@@ -109,7 +110,7 @@ export async function POST(request: Request) {
     saveStore(nextStore);
 
     if (warnings.length > 0) {
-      console.warn(`Workspace opened with warnings: ${warnings.join(" ")}`);
+      logger.warn(`Workspace opened with warnings: ${warnings.join(" ")}`);
     }
 
     const result: ProjectOpenResult = {
@@ -120,7 +121,7 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to open workspace.";
-    console.error(message);
+    logger.error(message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -13,111 +13,75 @@ import type {
   ProjectTileRenameResult,
   ProjectsStore,
 } from "./types";
+import { fetchJson } from "@/lib/http";
 
 export const fetchProjectsStore = async (): Promise<ProjectsStore> => {
-  const res = await fetch("/api/projects", { cache: "no-store" });
-  if (!res.ok) {
-    throw new Error("Failed to load workspaces.");
-  }
-  return (await res.json()) as ProjectsStore;
+  return fetchJson<ProjectsStore>("/api/projects", { cache: "no-store" });
 };
 
 export const createProject = async (
   payload: ProjectCreatePayload
 ): Promise<ProjectCreateResult> => {
-  const res = await fetch("/api/projects", {
+  return fetchJson<ProjectCreateResult>("/api/projects", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error ?? "Failed to create workspace.");
-  }
-  return data as ProjectCreateResult;
 };
 
 export const openProject = async (
   payload: ProjectOpenPayload
 ): Promise<ProjectOpenResult> => {
-  const res = await fetch("/api/projects/open", {
+  return fetchJson<ProjectOpenResult>("/api/projects/open", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error ?? "Failed to open workspace.");
-  }
-  return data as ProjectOpenResult;
 };
 
 export const saveProjectsStore = async (store: ProjectsStore): Promise<ProjectsStore> => {
-  const res = await fetch("/api/projects", {
+  return fetchJson<ProjectsStore>("/api/projects", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(store),
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error ?? "Failed to save workspaces.");
-  }
-  return data as ProjectsStore;
 };
 
 export const deleteProject = async (projectId: string): Promise<ProjectDeleteResult> => {
-  const res = await fetch(`/api/projects/${projectId}`, { method: "DELETE" });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error ?? "Failed to delete workspace.");
-  }
-  return data as ProjectDeleteResult;
+  return fetchJson<ProjectDeleteResult>(`/api/projects/${projectId}`, {
+    method: "DELETE",
+  });
 };
 
 export const createProjectDiscordChannel = async (
   projectId: string,
   payload: ProjectDiscordChannelCreatePayload
 ): Promise<ProjectDiscordChannelCreateResult> => {
-  const res = await fetch(`/api/projects/${projectId}/discord`, {
+  return fetchJson<ProjectDiscordChannelCreateResult>(`/api/projects/${projectId}/discord`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error ?? "Failed to create Discord channel.");
-  }
-  return data as ProjectDiscordChannelCreateResult;
 };
 
 export const createProjectTile = async (
   projectId: string,
   payload: ProjectTileCreatePayload
 ): Promise<ProjectTileCreateResult> => {
-  const res = await fetch(`/api/projects/${projectId}/tiles`, {
+  return fetchJson<ProjectTileCreateResult>(`/api/projects/${projectId}/tiles`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error ?? "Failed to create tile.");
-  }
-  return data as ProjectTileCreateResult;
 };
 
 export const deleteProjectTile = async (
   projectId: string,
   tileId: string
 ): Promise<ProjectTileDeleteResult> => {
-  const res = await fetch(`/api/projects/${projectId}/tiles/${tileId}`, {
+  return fetchJson<ProjectTileDeleteResult>(`/api/projects/${projectId}/tiles/${tileId}`, {
     method: "DELETE",
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error ?? "Failed to delete tile.");
-  }
-  return data as ProjectTileDeleteResult;
 };
 
 export const renameProjectTile = async (
@@ -125,14 +89,9 @@ export const renameProjectTile = async (
   tileId: string,
   payload: ProjectTileRenamePayload
 ): Promise<ProjectTileRenameResult> => {
-  const res = await fetch(`/api/projects/${projectId}/tiles/${tileId}`, {
+  return fetchJson<ProjectTileRenameResult>(`/api/projects/${projectId}/tiles/${tileId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error ?? "Failed to rename tile.");
-  }
-  return data as ProjectTileRenameResult;
 };

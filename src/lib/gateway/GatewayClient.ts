@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { EventFrame, GatewayFrame, ReqFrame, ResFrame } from "./frames";
 
 type PendingRequest = {
@@ -87,7 +88,7 @@ export class GatewayClient {
     });
 
     socket.addEventListener("error", () => {
-      console.error("Gateway socket error.");
+      logger.error("Gateway socket error.");
     });
 
     try {
@@ -116,7 +117,7 @@ export class GatewayClient {
       await this.sendRequest("connect", connectParams);
 
       this.updateStatus("connected");
-      console.info("Gateway connected.");
+      logger.info("Gateway connected.");
     } catch (error) {
       const reason =
         error instanceof Error ? error : new Error("Gateway connect failed.");
@@ -138,7 +139,7 @@ export class GatewayClient {
     this.lastChallenge = null;
     this.clearPending(new Error("Gateway disconnected."));
     this.updateStatus("disconnected");
-    console.info("Gateway disconnected.");
+    logger.info("Gateway disconnected.");
   }
 
   async call<T = unknown>(method: string, params: unknown): Promise<T> {
@@ -247,7 +248,7 @@ export class GatewayClient {
     try {
       parsed = JSON.parse(data) as GatewayFrame;
     } catch {
-      console.error("Failed to parse gateway frame.");
+      logger.error("Failed to parse gateway frame.");
       return;
     }
 
@@ -296,7 +297,7 @@ export class GatewayClient {
     this.lastChallenge = null;
     this.clearPending(new Error("Gateway disconnected."));
     this.updateStatus("disconnected");
-    console.info("Gateway socket closed.");
+    logger.info("Gateway socket closed.");
   }
 
   private clearPending(error: Error) {
