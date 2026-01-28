@@ -1,16 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CanvasMinimap } from "@/features/canvas/components/CanvasMinimap";
-import { CanvasViewport } from "@/features/canvas/components/CanvasViewport";
+import type { ReactFlowInstance } from "@xyflow/react";
+import { CanvasFlow } from "@/features/canvas/components/CanvasFlow";
 import { HeaderBar } from "@/features/canvas/components/HeaderBar";
-import {
-  screenToWorld,
-  worldToScreen,
-  zoomAtScreenPoint,
-  zoomToFit,
-} from "@/features/canvas/lib/transform";
+import { screenToWorld, worldToScreen } from "@/features/canvas/lib/transform";
 import { extractText } from "@/lib/text/extractText";
+import { extractThinking, formatThinkingMarkdown } from "@/lib/text/extractThinking";
 import { useGatewayConnection } from "@/lib/gateway/useGatewayConnection";
 import type { EventFrame } from "@/lib/gateway/frames";
 import {
@@ -45,7 +41,6 @@ const RESET_PROMPT_RE =
 const MESSAGE_ID_RE = /\s*\[message_id:[^\]]+\]\s*/gi;
 const UI_METADATA_PREFIX_RE =
   /^(?:Project path:|Workspace path:|A new session was started via \/new or \/reset)/i;
-const THINKING_BLOCK_RE = /<\s*think(?:ing)?\s*>([\s\S]*?)<\s*\/\s*think(?:ing)?\s*>/i;
 
 const stripUiMetadata = (text: string) => {
   if (!text) return text;
@@ -59,42 +54,6 @@ const stripUiMetadata = (text: string) => {
   return cleaned;
 };
 
-const formatThinkingTrace = (value: string): string | null => {
-  const firstLine = value
-    .split("\n")
-    .map((line) => line.trim())
-    .find((line) => Boolean(line));
-  if (!firstLine) return null;
-  const deEmphasized = firstLine.replace(/^\*\*(.*)\*\*$/, "$1");
-  const cleaned = deEmphasized.replace(/\s+/g, " ").trim();
-  if (!cleaned) return null;
-  if (cleaned.length <= 160) return cleaned;
-  return `${cleaned.slice(0, 157)}…`;
-};
-
-const extractThinkingTrace = (message: unknown): string | null => {
-  if (!message || typeof message !== "object") return null;
-  const m = message as Record<string, unknown>;
-  const role = typeof m.role === "string" ? m.role : "";
-  if (role && role !== "assistant") return null;
-  const content = m.content;
-  if (typeof content === "string") {
-    const match = content.match(THINKING_BLOCK_RE);
-    if (!match?.[1]) return null;
-    return formatThinkingTrace(match[1]);
-  }
-  if (Array.isArray(content)) {
-    for (const part of content) {
-      const item = part as Record<string, unknown>;
-      if (item.type !== "thinking") continue;
-      if (typeof item.thinking === "string") {
-        const formatted = formatThinkingTrace(item.thinking);
-        if (formatted) return formatted;
-      }
-    }
-  }
-  return null;
-};
 
 type ChatHistoryMessage = Record<string, unknown>;
 
@@ -113,13 +72,22 @@ const buildHistoryLines = (messages: ChatHistoryMessage[]) => {
     const role = typeof message.role === "string" ? message.role : "other";
     const extracted = extractText(message);
     const text = stripUiMetadata(extracted?.trim() ?? "");
-    if (!text) continue;
+    const thinking =
+      role === "assistant" ? formatThinkingMarkdown(extractThinking(message) ?? "") : "";
+    if (!text && !thinking) continue;
     if (role === "user") {
-      lines.push(`> ${text}`);
+      if (text) {
+        lines.push(`> ${text}`);
+      }
       lastRole = "user";
     } else if (role === "assistant") {
-      lines.push(text);
-      lastAssistant = text;
+      if (thinking) {
+        lines.push(thinking);
+      }
+      if (text) {
+        lines.push(text);
+        lastAssistant = text;
+      }
       lastRole = "assistant";
     }
   }
@@ -218,6 +186,7 @@ const AgentCanvasPage = () => {
   const stateRef = useRef(state);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+  const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null);
 
   const tiles = useMemo(() => project?.tiles ?? [], [project?.tiles]);
 
@@ -633,6 +602,8 @@ const AgentCanvasPage = () => {
       const match = findTileBySessionKey(state.projects, payload.sessionKey);
       if (!match) return;
 
+      const project = state.projects.find((entry) => entry.id === match.projectId);
+      const tile = project?.tiles.find((entry) => entry.id === match.tileId);
       const role =
         payload.message && typeof payload.message === "object"
           ? (payload.message as Record<string, unknown>).role
@@ -642,7 +613,7 @@ const AgentCanvasPage = () => {
       }
       const nextTextRaw = extractText(payload.message);
       const nextText = nextTextRaw ? stripUiMetadata(nextTextRaw) : null;
-      const nextThinking = extractThinkingTrace(payload.message);
+      const nextThinking = extractThinking(payload.message);
       if (payload.state === "delta") {
         if (typeof nextTextRaw === "string" && UI_METADATA_PREFIX_RE.test(nextTextRaw.trim())) {
           return;
@@ -673,6 +644,16 @@ const AgentCanvasPage = () => {
       }
 
       if (payload.state === "final") {
+        const thinkingText = nextThinking ?? tile?.thinkingTrace ?? null;
+        const thinkingLine = thinkingText ? formatThinkingMarkdown(thinkingText) : "";
+        if (thinkingLine) {
+          dispatch({
+            type: "appendOutput",
+            projectId: match.projectId,
+            tileId: match.tileId,
+            line: thinkingLine,
+          });
+        }
         if (typeof nextText === "string") {
           dispatch({
             type: "appendOutput",
@@ -775,45 +756,25 @@ const AgentCanvasPage = () => {
     });
   }, [client, dispatch, state.projects]);
 
-  const zoom = state.canvas.zoom;
-
-  const getViewportCenter = useCallback(() => {
-    const node = viewportRef.current;
-    if (!node) return null;
-    const rect = node.getBoundingClientRect();
-    return { x: rect.width / 2, y: rect.height / 2 };
-  }, []);
-
   const handleZoomIn = useCallback(() => {
-    const screenPoint = getViewportCenter();
-    if (!screenPoint) return;
-    const nextZoom = zoom * 1.1;
-    const nextTransform = zoomAtScreenPoint(state.canvas, nextZoom, screenPoint);
-    dispatch({ type: "setCanvas", patch: nextTransform });
-  }, [dispatch, getViewportCenter, state.canvas, zoom]);
+    if (!flowInstance) return;
+    flowInstance.zoomIn();
+  }, [flowInstance]);
 
   const handleZoomOut = useCallback(() => {
-    const screenPoint = getViewportCenter();
-    if (!screenPoint) return;
-    const nextZoom = zoom / 1.1;
-    const nextTransform = zoomAtScreenPoint(state.canvas, nextZoom, screenPoint);
-    dispatch({ type: "setCanvas", patch: nextTransform });
-  }, [dispatch, getViewportCenter, state.canvas, zoom]);
+    if (!flowInstance) return;
+    flowInstance.zoomOut();
+  }, [flowInstance]);
 
   const handleZoomReset = useCallback(() => {
-    dispatch({
-      type: "setCanvas",
-      patch: { zoom: CANVAS_BASE_ZOOM, offsetX: 0, offsetY: 0 },
-    });
-  }, [dispatch]);
+    if (!flowInstance) return;
+    flowInstance.setViewport({ x: 0, y: 0, zoom: CANVAS_BASE_ZOOM });
+  }, [flowInstance]);
 
   const handleZoomToFit = useCallback(() => {
-    if (viewportSize.width === 0 || viewportSize.height === 0) return;
-    const nextTransform = zoomToFit(tiles, viewportSize, 80, state.canvas);
-    dispatch({ type: "setCanvas", patch: nextTransform });
-  }, [dispatch, state.canvas, tiles, viewportSize]);
-
-  const canvasPatch = useMemo(() => state.canvas, [state.canvas]);
+    if (!flowInstance) return;
+    void flowInstance.fitView({ padding: 0.2 });
+  }, [flowInstance]);
 
   const handleProjectCreate = useCallback(async () => {
     if (!projectName.trim()) {
@@ -895,9 +856,9 @@ const AgentCanvasPage = () => {
 
   return (
     <div className="relative h-screen w-screen overflow-hidden">
-      <CanvasViewport
+      <CanvasFlow
         tiles={tiles}
-        transform={canvasPatch}
+        transform={state.canvas}
         viewportRef={viewportRef}
         selectedTileId={state.selectedTileId}
         canSend={status === "connected"}
@@ -951,6 +912,7 @@ const AgentCanvasPage = () => {
         onModelChange={handleModelChange}
         onThinkingChange={handleThinkingChange}
         onUpdateTransform={(patch) => dispatch({ type: "setCanvas", patch })}
+        onInit={(instance) => setFlowInstance(instance)}
       />
 
       <div className="pointer-events-none absolute inset-0 z-10 flex flex-col gap-4 p-6">
@@ -988,13 +950,6 @@ const AgentCanvasPage = () => {
             onZoomToFit={handleZoomToFit}
           />
         </div>
-
-        <CanvasMinimap
-          tiles={tiles}
-          transform={state.canvas}
-          viewportSize={viewportSize}
-          onUpdateTransform={(patch) => dispatch({ type: "setCanvas", patch })}
-        />
 
         {state.loading ? (
           <div className="pointer-events-auto mx-auto w-full max-w-4xl">

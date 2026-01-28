@@ -44,21 +44,21 @@ test.beforeEach(async ({ page }) => {
 test("wheel zoom updates zoom readout", async ({ page }) => {
   await page.goto("/");
 
-  const viewport = page.locator("[data-canvas-viewport]");
-  await expect(viewport).toBeVisible();
+  const pane = page.locator(".react-flow__pane");
+  await expect(pane).toBeVisible();
 
   const zoomReadout = page.locator("[data-zoom-readout]");
   await expect(zoomReadout).toBeVisible();
   const beforeText = (await zoomReadout.textContent()) ?? "";
 
-  const box = await viewport.boundingBox();
+  const box = await pane.boundingBox();
   expect(box).not.toBeNull();
   const clientX = box!.x + box!.width / 2;
   const clientY = box!.y + box!.height / 2;
 
-  await page.dispatchEvent("[data-canvas-viewport]", "wheel", {
-    deltaY: 120,
-    deltaMode: 1,
+  await page.dispatchEvent(".react-flow__pane", "wheel", {
+    deltaY: 240,
+    deltaMode: 0,
     clientX,
     clientY,
   });
@@ -69,8 +69,8 @@ test("wheel zoom updates zoom readout", async ({ page }) => {
 test("wheel changes tile bounds on the canvas", async ({ page }) => {
   await page.goto("/");
 
-  const viewport = page.locator("[data-canvas-viewport]");
-  await expect(viewport).toBeVisible();
+  const pane = page.locator(".react-flow__pane");
+  await expect(pane).toBeVisible();
 
   const tile = page.locator("[data-tile]");
   await expect(tile).toBeVisible();
@@ -79,14 +79,14 @@ test("wheel changes tile bounds on the canvas", async ({ page }) => {
   expect(beforeBox).not.toBeNull();
   const beforeWidth = beforeBox!.width;
 
-  const viewportBox = await viewport.boundingBox();
-  expect(viewportBox).not.toBeNull();
-  const clientX = viewportBox!.x + viewportBox!.width / 2;
-  const clientY = viewportBox!.y + viewportBox!.height / 2;
+  const paneBox = await pane.boundingBox();
+  expect(paneBox).not.toBeNull();
+  const clientX = paneBox!.x + paneBox!.width / 2;
+  const clientY = paneBox!.y + paneBox!.height / 2;
 
-  await page.dispatchEvent("[data-canvas-viewport]", "wheel", {
-    deltaY: 120,
-    deltaMode: 1,
+  await page.dispatchEvent(".react-flow__pane", "wheel", {
+    deltaY: 240,
+    deltaMode: 0,
     clientX,
     clientY,
   });
@@ -99,5 +99,78 @@ test("wheel changes tile bounds on the canvas", async ({ page }) => {
       return Math.abs(rect.width - previousWidth) > 0.5;
     },
     { selector: "[data-tile]", previousWidth: beforeWidth }
+  );
+});
+
+test("pan-drag-shifts-tiles", async ({ page }) => {
+  await page.goto("/");
+
+  const pane = page.locator(".react-flow__pane");
+  await expect(pane).toBeVisible();
+
+  const tile = page.locator("[data-tile]");
+  await expect(tile).toBeVisible();
+
+  const beforeBox = await tile.boundingBox();
+  expect(beforeBox).not.toBeNull();
+
+  const paneBox = await pane.boundingBox();
+  expect(paneBox).not.toBeNull();
+
+  const startX = paneBox!.x + 40;
+  const startY = paneBox!.y + 40;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 160, startY + 120, { steps: 10 });
+  await page.mouse.up();
+
+  await page.waitForFunction(
+    ({ selector, startX, startY }) => {
+      const el = document.querySelector(selector);
+      if (!el) return false;
+      const rect = el.getBoundingClientRect();
+      return Math.abs(rect.x - startX) > 5 || Math.abs(rect.y - startY) > 5;
+    },
+    { selector: "[data-tile]", startX: beforeBox!.x, startY: beforeBox!.y }
+  );
+});
+
+test("resize-handle-updates-tile-size", async ({ page }) => {
+  await page.goto("/");
+
+  const tile = page.locator("[data-tile]");
+  await expect(tile).toBeVisible();
+  await tile.click();
+
+  const handle = page.locator(".tile-resize-handle.bottom.right");
+  await expect(handle).toBeVisible();
+
+  const beforeBox = await tile.boundingBox();
+  expect(beforeBox).not.toBeNull();
+
+  const handleBox = await handle.boundingBox();
+  expect(handleBox).not.toBeNull();
+
+  const startX = handleBox!.x + handleBox!.width / 2;
+  const startY = handleBox!.y + handleBox!.height / 2;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 120, startY + 100, { steps: 10 });
+  await page.mouse.up();
+
+  await page.waitForFunction(
+    ({ selector, previousWidth, previousHeight }) => {
+      const el = document.querySelector(selector);
+      if (!el) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > previousWidth + 10 && rect.height > previousHeight + 10;
+    },
+    {
+      selector: "[data-tile]",
+      previousWidth: beforeBox!.width,
+      previousHeight: beforeBox!.height,
+    }
   );
 });

@@ -2,24 +2,15 @@ import type React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentTile as AgentTileType, TilePosition, TileSize } from "@/features/canvas/state/store";
+import type { AgentTile as AgentTileType } from "@/features/canvas/state/store";
 import { isTraceMarkdown, stripTraceMarkdown } from "@/lib/text/extractThinking";
 
-const MIN_SIZE = { width: 560, height: 440 };
-
-const clampSize = (size: TileSize): TileSize => ({
-  width: Math.max(MIN_SIZE.width, size.width),
-  height: Math.max(MIN_SIZE.height, size.height),
-});
+export const MIN_TILE_SIZE = { width: 560, height: 440 };
 
 type AgentTileProps = {
   tile: AgentTileType;
-  zoom: number;
   isSelected: boolean;
   canSend: boolean;
-  onSelect: () => void;
-  onMove: (position: TilePosition) => void;
-  onResize: (size: TileSize) => void;
   onDelete: () => void;
   onNameChange: (name: string) => Promise<boolean>;
   onDraftChange: (value: string) => void;
@@ -30,12 +21,8 @@ type AgentTileProps = {
 
 export const AgentTile = ({
   tile,
-  zoom,
   isSelected,
   canSend,
-  onSelect,
-  onMove,
-  onResize,
   onDelete,
   onNameChange,
   onDraftChange,
@@ -51,34 +38,27 @@ export const AgentTile = ({
     el.scrollTop = el.scrollHeight;
   }, []);
 
+  const handleOutputWheel = useCallback(
+    (event: React.WheelEvent<HTMLDivElement>) => {
+      if (!isSelected) return;
+      const el = outputRef.current;
+      if (!el) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      const maxLeft = Math.max(0, el.scrollWidth - el.clientWidth);
+      const nextTop = Math.max(0, Math.min(maxTop, el.scrollTop + event.deltaY));
+      const nextLeft = Math.max(0, Math.min(maxLeft, el.scrollLeft + event.deltaX));
+      el.scrollTop = nextTop;
+      el.scrollLeft = nextLeft;
+    },
+    [isSelected]
+  );
+
   useEffect(() => {
     const raf = requestAnimationFrame(scrollOutputToBottom);
     return () => cancelAnimationFrame(raf);
   }, [scrollOutputToBottom, tile.outputLines, tile.streamText]);
-
-  const handleDragStart = (event: React.PointerEvent<HTMLDivElement>) => {
-    event.stopPropagation();
-    onSelect();
-    if (event.button !== 0) return;
-
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const origin = tile.position;
-
-    const handleMove = (moveEvent: PointerEvent) => {
-      const dx = (moveEvent.clientX - startX) / zoom;
-      const dy = (moveEvent.clientY - startY) / zoom;
-      onMove({ x: origin.x + dx, y: origin.y + dy });
-    };
-
-    const handleUp = () => {
-      window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("pointerup", handleUp);
-    };
-
-    window.addEventListener("pointermove", handleMove);
-    window.addEventListener("pointerup", handleUp);
-  };
 
   const commitName = async () => {
     const next = nameDraft.trim();
@@ -95,30 +75,6 @@ export const AgentTile = ({
     }
   };
 
-  const handleResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
-    event.stopPropagation();
-    onSelect();
-    if (event.button !== 0) return;
-
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const origin = tile.size;
-
-    const handleMove = (moveEvent: PointerEvent) => {
-      const dx = (moveEvent.clientX - startX) / zoom;
-      const dy = (moveEvent.clientY - startY) / zoom;
-      onResize(clampSize({ width: origin.width + dx, height: origin.height + dy }));
-    };
-
-    const handleUp = () => {
-      window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("pointerup", handleUp);
-    };
-
-    window.addEventListener("pointermove", handleMove);
-    window.addEventListener("pointerup", handleUp);
-  };
-
   const statusColor =
     tile.status === "running"
       ? "bg-amber-200 text-amber-900"
@@ -130,20 +86,13 @@ export const AgentTile = ({
   return (
     <div
       data-tile
-      className={`absolute flex flex-col overflow-hidden rounded-3xl border bg-white/80 shadow-xl backdrop-blur transition ${
+      className={`flex h-full w-full flex-col overflow-hidden rounded-3xl border bg-white/80 shadow-xl backdrop-blur transition ${
         isSelected ? "border-slate-500" : "border-slate-200"
       }`}
-      style={{
-        left: tile.position.x,
-        top: tile.position.y,
-        width: tile.size.width,
-        height: tile.size.height,
-      }}
-      onPointerDown={onSelect}
     >
       <div
         className="flex cursor-grab items-center justify-between gap-2 border-b border-slate-200 px-4 py-2"
-        onPointerDown={handleDragStart}
+        data-drag-handle
       >
         <input
           className="w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
@@ -179,6 +128,7 @@ export const AgentTile = ({
         <div
           ref={outputRef}
           className="flex-1 overflow-auto rounded-2xl border border-slate-200 bg-white/60 p-3 text-xs text-slate-700"
+          onWheel={handleOutputWheel}
         >
           {tile.outputLines.length === 0 && !tile.streamText && !showThinking ? (
             <p className="text-slate-500">No output yet.</p>
@@ -193,27 +143,46 @@ export const AgentTile = ({
                   </div>
                 </div>
               ) : null}
-              {tile.outputLines.map((line, index) => (
-                isTraceMarkdown(line) ? (
-                  <details
-                    key={`${tile.id}-line-${index}`}
-                    className="rounded-xl border border-slate-200 bg-white/80 px-2 py-1 text-[11px] text-slate-600"
-                  >
-                    <summary className="cursor-pointer select-none font-semibold">
-                      Trace
-                    </summary>
-                    <div className="agent-markdown mt-1 text-slate-700">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {stripTraceMarkdown(line)}
-                      </ReactMarkdown>
+              {(() => {
+                const nodes: React.ReactNode[] = [];
+                for (let index = 0; index < tile.outputLines.length; index += 1) {
+                  const line = tile.outputLines[index];
+                  if (isTraceMarkdown(line)) {
+                    const traces = [stripTraceMarkdown(line)];
+                    let cursor = index + 1;
+                    while (
+                      cursor < tile.outputLines.length &&
+                      isTraceMarkdown(tile.outputLines[cursor])
+                    ) {
+                      traces.push(stripTraceMarkdown(tile.outputLines[cursor]));
+                      cursor += 1;
+                    }
+                    nodes.push(
+                      <details
+                        key={`${tile.id}-trace-${index}`}
+                        className="rounded-xl border border-slate-200 bg-white/80 px-2 py-1 text-[11px] text-slate-600"
+                      >
+                        <summary className="cursor-pointer select-none font-semibold">
+                          Thinking
+                        </summary>
+                        <div className="agent-markdown mt-1 text-slate-700">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {traces.join("\n")}
+                          </ReactMarkdown>
+                        </div>
+                      </details>
+                    );
+                    index = cursor - 1;
+                    continue;
+                  }
+                  nodes.push(
+                    <div key={`${tile.id}-line-${index}`} className="agent-markdown">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{line}</ReactMarkdown>
                     </div>
-                  </details>
-                ) : (
-                  <div key={`${tile.id}-line-${index}`} className="agent-markdown">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{line}</ReactMarkdown>
-                  </div>
-                )
-              ))}
+                  );
+                }
+                return nodes;
+              })()}
               {tile.streamText ? (
                 <div className="agent-markdown text-slate-500">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -291,22 +260,6 @@ export const AgentTile = ({
           </button>
         </div>
       </div>
-      <div
-        className="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize"
-        onPointerDown={handleResizeStart}
-      />
-      <div
-        className="absolute bottom-0 left-0 h-4 w-4 cursor-sw-resize"
-        onPointerDown={handleResizeStart}
-      />
-      <div
-        className="absolute top-0 right-0 h-4 w-4 cursor-ne-resize"
-        onPointerDown={handleResizeStart}
-      />
-      <div
-        className="absolute top-0 left-0 h-4 w-4 cursor-nw-resize"
-        onPointerDown={handleResizeStart}
-      />
     </div>
   );
 };
