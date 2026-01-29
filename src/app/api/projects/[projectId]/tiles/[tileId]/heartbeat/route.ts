@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { logger } from "@/lib/logger";
 import { loadClawdbotConfig, saveClawdbotConfig } from "@/lib/clawdbot/config";
+import { resolveProjectTile } from "@/lib/projects/resolve";
 import type {
   ProjectTileHeartbeat,
   ProjectTileHeartbeatUpdatePayload,
@@ -72,32 +73,6 @@ const normalizeHeartbeat = (defaults: HeartbeatBlock, override: HeartbeatBlock) 
   } satisfies HeartbeatResolved;
 };
 
-const resolveTile = async (
-  params: Promise<{ projectId: string; tileId: string }>
-) => {
-  const { projectId, tileId } = await params;
-  const trimmedProjectId = projectId.trim();
-  const trimmedTileId = tileId.trim();
-  if (!trimmedProjectId || !trimmedTileId) {
-    return {
-      error: NextResponse.json(
-        { error: "Workspace id and tile id are required." },
-        { status: 400 }
-      ),
-    };
-  }
-  const store = loadStore();
-  const project = store.projects.find((entry) => entry.id === trimmedProjectId);
-  if (!project) {
-    return { error: NextResponse.json({ error: "Workspace not found." }, { status: 404 }) };
-  }
-  const tile = project.tiles.find((entry) => entry.id === trimmedTileId);
-  if (!tile) {
-    return { error: NextResponse.json({ error: "Tile not found." }, { status: 404 }) };
-  }
-  return { projectId: trimmedProjectId, tileId: trimmedTileId, tile };
-};
-
 const readAgentList = (config: Record<string, unknown>): AgentEntry[] => {
   const agents = (config.agents ?? {}) as Record<string, unknown>;
   const list = Array.isArray(agents.list) ? agents.list : [];
@@ -121,9 +96,14 @@ export async function GET(
   context: { params: Promise<{ projectId: string; tileId: string }> }
 ) {
   try {
-    const resolved = await resolveTile(context.params);
-    if ("error" in resolved) {
-      return resolved.error;
+    const { projectId, tileId } = await context.params;
+    const store = loadStore();
+    const resolved = resolveProjectTile(store, projectId, tileId);
+    if (!resolved.ok) {
+      return NextResponse.json(
+        { error: resolved.error.message },
+        { status: resolved.error.status }
+      );
     }
     const { tile } = resolved;
     const { config } = loadClawdbotConfig();
@@ -147,9 +127,14 @@ export async function PUT(
   context: { params: Promise<{ projectId: string; tileId: string }> }
 ) {
   try {
-    const resolved = await resolveTile(context.params);
-    if ("error" in resolved) {
-      return resolved.error;
+    const { projectId, tileId } = await context.params;
+    const store = loadStore();
+    const resolved = resolveProjectTile(store, projectId, tileId);
+    if (!resolved.ok) {
+      return NextResponse.json(
+        { error: resolved.error.message },
+        { status: resolved.error.status }
+      );
     }
     const { tile } = resolved;
     const body = (await request.json()) as ProjectTileHeartbeatUpdatePayload;

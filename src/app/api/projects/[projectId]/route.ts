@@ -7,6 +7,7 @@ import {
   saveClawdbotConfig,
 } from "@/lib/clawdbot/config";
 import { deleteAgentArtifacts } from "@/lib/projects/fs.server";
+import { resolveProject } from "@/lib/projects/resolve";
 import { loadStore, saveStore } from "../store";
 
 export const runtime = "nodejs";
@@ -17,15 +18,15 @@ export async function DELETE(
 ) {
   try {
     const { projectId } = await context.params;
-    const trimmedProjectId = projectId.trim();
-    if (!trimmedProjectId) {
-      return NextResponse.json({ error: "Workspace id is required." }, { status: 400 });
-    }
     const store = loadStore();
-    const project = store.projects.find((entry) => entry.id === trimmedProjectId);
-    if (!project) {
-      return NextResponse.json({ error: "Workspace not found." }, { status: 404 });
+    const resolved = resolveProject(store, projectId);
+    if (!resolved.ok) {
+      return NextResponse.json(
+        { error: resolved.error.message },
+        { status: resolved.error.status }
+      );
     }
+    const { projectId: resolvedProjectId, project } = resolved;
 
     const warnings: string[] = [];
     let configInfo: { config: Record<string, unknown>; configPath: string } | null = null;
@@ -41,7 +42,7 @@ export async function DELETE(
         warnings.push(`Missing agentId for tile ${tile.id}; skipped agent cleanup.`);
         continue;
       }
-      deleteAgentArtifacts(trimmedProjectId, tile.agentId, warnings);
+      deleteAgentArtifacts(resolvedProjectId, tile.agentId, warnings);
       if (configInfo) {
         removeAgentEntry(configInfo.config, tile.agentId);
       }
@@ -50,9 +51,9 @@ export async function DELETE(
       saveClawdbotConfig(configInfo.configPath, configInfo.config);
     }
 
-    const projects = store.projects.filter((project) => project.id !== trimmedProjectId);
+    const projects = store.projects.filter((project) => project.id !== resolvedProjectId);
     const activeProjectId =
-      store.activeProjectId === trimmedProjectId
+      store.activeProjectId === resolvedProjectId
         ? projects[0]?.id ?? null
         : store.activeProjectId;
     const nextStore = {

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
 import { createDiscordChannelForAgent } from "@/lib/discord/discordChannel";
 import { resolveAgentWorkspaceDir } from "@/lib/projects/agentWorkspace";
+import { resolveProject } from "@/lib/projects/resolve";
 import { loadStore } from "../../store";
 
 export const runtime = "nodejs";
@@ -19,10 +20,6 @@ export async function POST(
 ) {
   try {
     const { projectId } = await context.params;
-    const trimmedProjectId = projectId.trim();
-    if (!trimmedProjectId) {
-      return NextResponse.json({ error: "Workspace id is required." }, { status: 400 });
-    }
     const body = (await request.json()) as DiscordChannelRequest;
     const guildId = typeof body?.guildId === "string" ? body.guildId.trim() : undefined;
     const agentId = typeof body?.agentId === "string" ? body.agentId.trim() : "";
@@ -35,12 +32,15 @@ export async function POST(
     }
 
     const store = loadStore();
-    const project = store.projects.find((entry) => entry.id === trimmedProjectId);
-    if (!project) {
-      return NextResponse.json({ error: "Workspace not found." }, { status: 404 });
+    const resolved = resolveProject(store, projectId);
+    if (!resolved.ok) {
+      return NextResponse.json(
+        { error: resolved.error.message },
+        { status: resolved.error.status }
+      );
     }
 
-    const workspaceDir = resolveAgentWorkspaceDir(trimmedProjectId, agentId);
+    const workspaceDir = resolveAgentWorkspaceDir(resolved.projectId, agentId);
     const result = await createDiscordChannelForAgent({
       agentId,
       agentName,

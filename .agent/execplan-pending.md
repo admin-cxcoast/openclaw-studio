@@ -11,7 +11,7 @@ The API routes for projects and tiles repeat the same validation and lookup logi
 ## Progress
 
 - [x] (2026-01-29 03:52Z) Add shared project and tile resolution helpers with tests.
-- [ ] (2026-01-29 00:00Z) Update API routes to use the shared helpers and run unit tests.
+- [x] (2026-01-29 03:55Z) Update API routes to use the shared helpers and run unit tests.
 
 ## Surprises & Discoveries
 
@@ -25,7 +25,7 @@ None yet.
 
 ## Outcomes & Retrospective
 
-Pending. This will be completed after implementation and verification.
+Completed consolidation of project/tile resolution into src/lib/projects/resolve.ts, added unit coverage, and refactored API routes to use the shared helper. All unit tests pass and API behavior should be unchanged. No follow-up work identified.
 
 ## Context and Orientation
 
@@ -87,3 +87,7 @@ In src/lib/projects/resolve.ts, define two functions with stable shapes that are
     ): ResolveProjectTileResult => { ... };
 
 These functions must not touch the filesystem and must not import NextResponse. They should only depend on ProjectsStore, Project, and ProjectTile types from src/lib/projects/types.
+
+## Plan Update Notes
+
+Updated progress, outcomes, and verification notes after completing both milestones and running the unit test suite to confirm behavior.

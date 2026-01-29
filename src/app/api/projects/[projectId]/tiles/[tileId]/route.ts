@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
 import type { ProjectTileUpdatePayload } from "@/lib/projects/types";
 import { deleteAgentArtifacts } from "@/lib/projects/fs.server";
+import { resolveProjectTile } from "@/lib/projects/resolve";
 import {
   loadClawdbotConfig,
   removeAgentEntry,
@@ -19,29 +20,22 @@ export async function DELETE(
 ) {
   try {
     const { projectId, tileId } = await context.params;
-    const trimmedProjectId = projectId.trim();
-    const trimmedTileId = tileId.trim();
-    if (!trimmedProjectId || !trimmedTileId) {
+    const store = loadStore();
+    const resolved = resolveProjectTile(store, projectId, tileId);
+    if (!resolved.ok) {
       return NextResponse.json(
-        { error: "Workspace id and tile id are required." },
-        { status: 400 }
+        { error: resolved.error.message },
+        { status: resolved.error.status }
       );
     }
-    const store = loadStore();
-    const project = store.projects.find((entry) => entry.id === trimmedProjectId);
-    if (!project) {
-      return NextResponse.json({ error: "Workspace not found." }, { status: 404 });
-    }
-    const tile = project.tiles.find((entry) => entry.id === trimmedTileId);
-    if (!tile) {
-      return NextResponse.json({ error: "Tile not found." }, { status: 404 });
-    }
+    const { projectId: resolvedProjectId, tileId: resolvedTileId, project, tile } =
+      resolved;
 
     const warnings: string[] = [];
     if (!tile.agentId?.trim()) {
       warnings.push(`Missing agentId for tile ${tile.id}; skipped agent cleanup.`);
     } else {
-      deleteAgentArtifacts(trimmedProjectId, tile.agentId, warnings);
+      deleteAgentArtifacts(resolvedProjectId, tile.agentId, warnings);
       try {
         const { config, configPath } = loadClawdbotConfig();
         const changed = removeAgentEntry(config, tile.agentId);
@@ -55,7 +49,7 @@ export async function DELETE(
       }
     }
 
-    const nextTiles = project.tiles.filter((entry) => entry.id !== trimmedTileId);
+    const nextTiles = project.tiles.filter((entry) => entry.id !== resolvedTileId);
     if (nextTiles.length === project.tiles.length) {
       return NextResponse.json({ error: "Tile not found." }, { status: 404 });
     }
@@ -63,7 +57,7 @@ export async function DELETE(
       ...store,
       version: 2 as const,
       projects: store.projects.map((entry) =>
-        entry.id === trimmedProjectId
+        entry.id === resolvedProjectId
           ? { ...entry, tiles: nextTiles, updatedAt: Date.now() }
           : entry
       ),
@@ -83,14 +77,6 @@ export async function PATCH(
 ) {
   try {
     const { projectId, tileId } = await context.params;
-    const trimmedProjectId = projectId.trim();
-    const trimmedTileId = tileId.trim();
-    if (!trimmedProjectId || !trimmedTileId) {
-      return NextResponse.json(
-        { error: "Workspace id and tile id are required." },
-        { status: 400 }
-      );
-    }
     const body = (await request.json()) as ProjectTileUpdatePayload;
     const name = typeof body?.name === "string" ? body.name.trim() : "";
     const avatarSeed =
@@ -106,18 +92,22 @@ export async function PATCH(
     }
 
     const store = loadStore();
-    const project = store.projects.find((entry) => entry.id === trimmedProjectId);
-    if (!project) {
-      return NextResponse.json({ error: "Workspace not found." }, { status: 404 });
+    const resolved = resolveProjectTile(store, projectId, tileId);
+    if (!resolved.ok) {
+      return NextResponse.json(
+        { error: resolved.error.message },
+        { status: resolved.error.status }
+      );
     }
-    const tile = project.tiles.find((entry) => entry.id === trimmedTileId);
-    if (!tile) {
-      return NextResponse.json({ error: "Tile not found." }, { status: 404 });
-    }
+    const { projectId: resolvedProjectId, tileId: resolvedTileId, project, tile } =
+      resolved;
 
     const warnings: string[] = [];
     if (name) {
-      const nextWorkspaceDir = resolveAgentWorkspaceDir(trimmedProjectId, tile.agentId);
+      const nextWorkspaceDir = resolveAgentWorkspaceDir(
+        resolvedProjectId,
+        tile.agentId
+      );
       try {
         const { config, configPath } = loadClawdbotConfig();
         const changed = upsertAgentEntry(config, {
@@ -136,7 +126,7 @@ export async function PATCH(
     }
 
     const nextTiles = project.tiles.map((entry) =>
-      entry.id === trimmedTileId
+      entry.id === resolvedTileId
         ? {
             ...entry,
             name: name || entry.name,
@@ -148,7 +138,7 @@ export async function PATCH(
       ...store,
       version: 2 as const,
       projects: store.projects.map((entry) =>
-        entry.id === trimmedProjectId
+        entry.id === resolvedProjectId
           ? { ...entry, tiles: nextTiles, updatedAt: Date.now() }
           : entry
       ),

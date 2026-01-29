@@ -14,6 +14,7 @@ import type {
 } from "@/lib/projects/types";
 import { resolveAgentWorkspaceDir } from "@/lib/projects/agentWorkspace";
 import { resolveClawdbotStateDir } from "@/lib/projects/fs.server";
+import { resolveProject } from "@/lib/projects/resolve";
 import {
   loadClawdbotConfig,
   saveClawdbotConfig,
@@ -72,10 +73,6 @@ export async function POST(
 ) {
   try {
     const { projectId } = await context.params;
-    const trimmedProjectId = projectId.trim();
-    if (!trimmedProjectId) {
-      return NextResponse.json({ error: "Workspace id is required." }, { status: 400 });
-    }
 
     const body = (await request.json()) as ProjectTileCreatePayload;
     const name = typeof body?.name === "string" ? body.name.trim() : "";
@@ -88,10 +85,14 @@ export async function POST(
     }
 
     const store = loadStore();
-    const project = store.projects.find((entry) => entry.id === trimmedProjectId);
-    if (!project) {
-      return NextResponse.json({ error: "Workspace not found." }, { status: 404 });
+    const resolved = resolveProject(store, projectId);
+    if (!resolved.ok) {
+      return NextResponse.json(
+        { error: resolved.error.message },
+        { status: resolved.error.status }
+      );
     }
+    const { projectId: resolvedProjectId, project } = resolved;
 
     const tileId = randomUUID();
     const projectSlug = path.basename(project.repoPath);
@@ -110,7 +111,7 @@ export async function POST(
     }
     const sessionKey = `agent:${agentId}:main`;
     const offset = project.tiles.length * 36;
-    const workspaceDir = resolveAgentWorkspaceDir(trimmedProjectId, agentId);
+    const workspaceDir = resolveAgentWorkspaceDir(resolvedProjectId, agentId);
     const tile: ProjectTile = {
       id: tileId,
       name,
@@ -124,7 +125,7 @@ export async function POST(
       size: { width: 420, height: 520 },
     };
 
-    const nextStore = updateStoreProject(store, trimmedProjectId, tile);
+    const nextStore = updateStoreProject(store, resolvedProjectId, tile);
     saveStore(nextStore);
 
     const { warnings: workspaceWarnings } = provisionWorkspaceFiles(workspaceDir);
