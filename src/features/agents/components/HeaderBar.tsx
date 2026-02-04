@@ -1,28 +1,12 @@
-import type { GatewayStatus } from "@/lib/gateway/GatewayClient";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Ellipsis } from "lucide-react";
 
 type HeaderBarProps = {
-  status: GatewayStatus;
-  gatewayUrl: string;
   agentCount: number;
   onConnectionSettings: () => void;
 };
 
-const statusDotStyles: Record<GatewayStatus, string> = {
-  disconnected: "bg-muted-foreground/45",
-  connecting: "bg-secondary-foreground/55",
-  connected: "bg-primary/75",
-};
-
-const statusLabel: Record<GatewayStatus, string> = {
-  disconnected: "Disconnected",
-  connecting: "Connecting",
-  connected: "Connected",
-};
-
 export const HeaderBar = ({
-  status,
-  gatewayUrl,
   agentCount,
   onConnectionSettings,
 }: HeaderBarProps) => {
@@ -35,34 +19,33 @@ export const HeaderBar = ({
             OpenClaw Studio
           </p>
           <p className="mt-1 truncate text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            Agents ({agentCount})
+            {agentCount} agents
           </p>
-          {gatewayUrl ? (
-            <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground/90">
-              {gatewayUrl}
-            </p>
-          ) : null}
         </div>
 
-        <div className="flex flex-col items-end gap-2">
-          <div className="inline-flex items-center gap-2 rounded-md border border-border/80 bg-card/70 px-3 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            <span
-              className={`status-ping h-2 w-2 rounded-full ${statusDotStyles[status]}`}
-              aria-hidden="true"
-            />
-            {statusLabel[status]}
-          </div>
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
-            <button
-              className="rounded-md border border-input/90 bg-background/75 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-foreground transition hover:border-ring hover:bg-card"
-              type="button"
-              onClick={onConnectionSettings}
-              data-testid="gateway-settings-toggle"
-            >
-              Connection Settings
-            </button>
-          </div>
+        <div className="flex items-center justify-end gap-2">
+          <ThemeToggle />
+          <details className="group relative">
+            <summary className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border border-input/80 bg-background/70 text-muted-foreground transition hover:border-ring hover:bg-card hover:text-foreground [&::-webkit-details-marker]:hidden">
+              <Ellipsis className="h-4 w-4" />
+              <span className="sr-only">Open studio menu</span>
+            </summary>
+            <div className="absolute right-0 top-11 z-20 min-w-44 rounded-md border border-border/80 bg-popover/95 p-1 shadow-lg backdrop-blur">
+              <button
+                className="w-full rounded-sm px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.1em] text-foreground transition hover:bg-muted"
+                type="button"
+                onClick={(event) => {
+                  onConnectionSettings();
+                  (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute(
+                    "open"
+                  );
+                }}
+                data-testid="gateway-settings-toggle"
+              >
+                Gateway Connection
+              </button>
+            </div>
+          </details>
         </div>
       </div>
     </div>
