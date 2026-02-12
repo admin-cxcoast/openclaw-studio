@@ -58,6 +58,27 @@ export const add = mutation({
   },
 });
 
+export const updateRole = mutation({
+  args: {
+    id: v.id("orgMembers"),
+    role: v.union(
+      v.literal("owner"),
+      v.literal("admin"),
+      v.literal("member"),
+      v.literal("viewer"),
+    ),
+  },
+  handler: async (ctx, args) => {
+    await requireSuperAdmin(ctx);
+    const membership = await ctx.db.get(args.id);
+    if (!membership) throw new Error("Membership not found");
+    await ctx.db.patch(args.id, {
+      role: args.role,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
 export const remove = mutation({
   args: { id: v.id("orgMembers") },
   handler: async (ctx, args) => {

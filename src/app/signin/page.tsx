@@ -5,28 +5,9 @@ import { useState } from "react";
 
 export default function SignInPage() {
   const { signIn } = useAuthActions();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [flow, setFlow] = useState<"signIn" | "signUp">("signIn");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      await signIn("password", { email, password, flow });
-    } catch {
-      setError(
-        flow === "signIn"
-          ? "Invalid email or password."
-          : "Could not create account. Email may already be registered.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <main className="flex h-screen items-center justify-center p-4">
@@ -38,7 +19,29 @@ export default function SignInPage() {
           {flow === "signIn" ? "Sign in to continue" : "Create your account"}
         </p>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            setError(null);
+            setLoading(true);
+            const formData = new FormData(e.currentTarget);
+            void signIn("password", formData)
+              .then(() => {
+                // Middleware handles redirect to /admin
+              })
+              .catch(() => {
+                setError(
+                  flow === "signIn"
+                    ? "Invalid email or password."
+                    : "Could not create account. Email may already be registered.",
+                );
+              })
+              .finally(() => setLoading(false));
+          }}
+          className="flex flex-col gap-4"
+        >
+          <input name="flow" type="hidden" value={flow} />
+
           <div className="flex flex-col gap-1.5">
             <label
               htmlFor="email"
@@ -48,10 +51,9 @@ export default function SignInPage() {
             </label>
             <input
               id="email"
+              name="email"
               type="email"
               required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
               className="rounded-md border border-border bg-input px-3 py-2 font-mono text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
               placeholder="you@example.com"
             />
@@ -66,11 +68,10 @@ export default function SignInPage() {
             </label>
             <input
               id="password"
+              name="password"
               type="password"
               required
               minLength={8}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
               className="rounded-md border border-border bg-input px-3 py-2 font-mono text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
               placeholder="Min. 8 characters"
             />

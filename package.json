@@ -19,6 +19,7 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@auth/core": "^0.37.4",
     "@convex-dev/auth": "^0.0.90",
     "@multiavatar/multiavatar": "github:multiavatar/Multiavatar",
     "@noble/ed25519": "^3.0.0",

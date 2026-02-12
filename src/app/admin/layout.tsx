@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { AdminSidebar } from "@/features/admin/components/AdminSidebar";
@@ -12,7 +13,13 @@ export default function AdminLayout({
 }) {
   const current = useQuery(api.users.currentUser);
 
-  if (current === undefined) {
+  useEffect(() => {
+    if (current === null) {
+      window.location.href = "/signin";
+    }
+  }, [current]);
+
+  if (current === undefined || current === null) {
     return (
       <div className="flex h-screen items-center justify-center">
         <span className="font-mono text-xs text-muted-foreground">
@@ -22,7 +29,7 @@ export default function AdminLayout({
     );
   }
 
-  if (!current?.profile || current.profile.role !== "superAdmin") {
+  if (!current.profile || current.profile.role !== "superAdmin") {
     return (
       <div className="flex h-screen items-center justify-center p-4">
         <div className="glass-panel w-full max-w-sm rounded-xl p-6 text-center">
