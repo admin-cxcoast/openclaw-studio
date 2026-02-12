@@ -30,6 +30,7 @@ describe("createAccessGate", () => {
 
     const handled = gate.handleHttp(
       { url: "/api/studio", headers: { host: "example.test" } },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       res as any
     );
 
@@ -42,6 +43,7 @@ describe("createAccessGate", () => {
     const { createAccessGate } = await import("../../server/access-gate");
     const gate = createAccessGate({ token: "abc" });
     expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       gate.allowUpgrade({ headers: { cookie: "studio_access=abc" } } as any)
     ).toBe(true);
   });

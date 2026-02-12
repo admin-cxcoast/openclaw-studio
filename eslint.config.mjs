@@ -16,6 +16,11 @@ const eslintConfig = defineConfig([
 
     // Vendored third-party code (kept as-is; linting it adds noise).
     "src/lib/avatars/vendor/**",
+
+    // Plain CJS server/scripts files (no TS transforms).
+    "server/**",
+    "scripts/**/*.js",
+    "scripts/**/*.mjs",
   ]),
   prettier,
 ]);

@@ -1,11 +1,11 @@
-import type { GatewayStatus } from "@/lib/gateway/GatewayClient";
+import type { GatewayErrorInfo, GatewayStatus } from "@/lib/gateway/GatewayClient";
 import { X } from "lucide-react";
 
 type ConnectionPanelProps = {
   gatewayUrl: string;
   token: string;
   status: GatewayStatus;
-  error: string | null;
+  error: GatewayErrorInfo | null;
   onGatewayUrlChange: (value: string) => void;
   onTokenChange: (value: string) => void;
   onConnect: () => void;
@@ -99,9 +99,12 @@ export const ConnectionPanel = ({
         </label>
       </div>
       {error ? (
-        <p className="rounded-md border border-destructive bg-destructive px-4 py-2 text-sm text-destructive-foreground">
-          {error}
-        </p>
+        <div className="rounded-md border border-destructive bg-destructive px-4 py-2">
+          <p className="text-sm text-destructive-foreground">{error.message}</p>
+          {error.guidance ? (
+            <p className="mt-0.5 text-xs text-destructive-foreground/80">{error.guidance}</p>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

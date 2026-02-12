@@ -195,8 +195,11 @@ const AgentStudioPage = () => {
     token,
     localGatewayDefaults,
     error: gatewayError,
+    retryState,
+    connectAttemptCount,
     connect,
     disconnect,
+    stopRetrying,
     useLocalGatewayDefaults,
     setGatewayUrl,
     setToken,
@@ -1781,7 +1784,7 @@ const AgentStudioPage = () => {
     }
   }, [gatewayError]);
 
-  if (!agentsLoadedOnce && (!didAttemptGatewayConnect || status === "connecting")) {
+  if (!agentsLoadedOnce && !didAttemptGatewayConnect) {
     return (
       <div className="relative min-h-screen w-screen overflow-hidden bg-background">
         <div className="flex min-h-screen items-center justify-center px-6">
@@ -1790,7 +1793,7 @@ const AgentStudioPage = () => {
               OpenClaw Studio
             </div>
             <div className="mt-3 text-sm text-muted-foreground">
-              {status === "connecting" ? "Connecting to gateway…" : "Booting Studio…"}
+              Booting Studio…
             </div>
           </div>
         </div>
@@ -1798,7 +1801,7 @@ const AgentStudioPage = () => {
     );
   }
 
-  if (status === "disconnected" && !agentsLoadedOnce && didAttemptGatewayConnect) {
+  if (!agentsLoadedOnce && status !== "connected") {
     return (
       <div className="relative min-h-screen w-screen overflow-hidden bg-background">
         <div className="relative z-10 flex h-screen flex-col gap-4 px-3 py-3 sm:px-4 sm:py-4 md:px-6 md:py-6">
@@ -1817,10 +1820,13 @@ const AgentStudioPage = () => {
             localGatewayDefaults={localGatewayDefaults}
             status={status}
             error={gatewayError}
+            retryState={retryState}
+            connectAttemptCount={connectAttemptCount}
             onGatewayUrlChange={setGatewayUrl}
             onTokenChange={setToken}
             onUseLocalDefaults={useLocalGatewayDefaults}
             onConnect={() => void connect()}
+            onStopRetrying={stopRetrying}
           />
         </div>
       </div>

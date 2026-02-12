@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Check, ChevronDown, ChevronUp, Copy, Eye, EyeOff, Loader2 } from "lucide-react";
-import type { GatewayStatus } from "@/lib/gateway/GatewayClient";
+import type { GatewayErrorInfo, GatewayStatus } from "@/lib/gateway/GatewayClient";
 import { isLocalGatewayUrl } from "@/lib/gateway/local-gateway";
 import type { StudioGatewaySettings } from "@/lib/studio/settings";
 
@@ -9,11 +9,14 @@ type GatewayConnectScreenProps = {
   token: string;
   localGatewayDefaults: StudioGatewaySettings | null;
   status: GatewayStatus;
-  error: string | null;
+  error: GatewayErrorInfo | null;
+  retryState: { attempt: number; max: number } | null;
+  connectAttemptCount: number;
   onGatewayUrlChange: (value: string) => void;
   onTokenChange: (value: string) => void;
   onUseLocalDefaults: () => void;
   onConnect: () => void;
+  onStopRetrying: () => void;
 };
 
 const resolveLocalGatewayPort = (gatewayUrl: string): number => {
@@ -25,16 +28,56 @@ const resolveLocalGatewayPort = (gatewayUrl: string): number => {
   return 18789;
 };
 
+const ErrorBlock = ({ error, section }: { error: GatewayErrorInfo | null; section: "local" | "remote" }) => {
+  if (!error || error.section !== section) return null;
+  return (
+    <div className="space-y-0.5">
+      <p className="text-xs leading-snug text-destructive">{error.message}</p>
+      {error.guidance ? (
+        <p className="text-xs text-muted-foreground">{error.guidance}</p>
+      ) : null}
+    </div>
+  );
+};
+
+const RetryIndicator = ({
+  retryState,
+  onStop,
+}: {
+  retryState: { attempt: number; max: number } | null;
+  onStop: () => void;
+}) => {
+  if (!retryState) return null;
+  return (
+    <div className="flex items-center gap-2">
+      <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Retrying… ({retryState.attempt}/{retryState.max})
+      </p>
+      <button
+        type="button"
+        className="rounded-md border border-input/70 bg-background/75 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground transition hover:border-input hover:text-foreground"
+        onClick={onStop}
+      >
+        Stop
+      </button>
+    </div>
+  );
+};
+
 export const GatewayConnectScreen = ({
   gatewayUrl,
   token,
   localGatewayDefaults,
   status,
   error,
+  retryState,
+  connectAttemptCount,
   onGatewayUrlChange,
   onTokenChange,
   onUseLocalDefaults,
   onConnect,
+  onStopRetrying,
 }: GatewayConnectScreenProps) => {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [remoteExpanded, setRemoteExpanded] = useState(false);
@@ -50,6 +93,7 @@ export const GatewayConnectScreen = ({
     () => `pnpm openclaw gateway run --bind loopback --port ${localPort} --verbose`,
     [localPort]
   );
+  const isFirstLoad = connectAttemptCount <= 1 && !error;
   const statusCopy = useMemo(() => {
     if (status === "connecting" && isLocal) {
       return `Local gateway detected on port ${localPort}. Connecting…`;
@@ -57,12 +101,14 @@ export const GatewayConnectScreen = ({
     if (status === "connecting") {
       return "Connecting to remote gateway…";
     }
+    if (isFirstLoad) {
+      return "Start a gateway to get started.";
+    }
     if (isLocal) {
       return "No local gateway found.";
     }
     return "Not connected to a gateway.";
-  }, [isLocal, localPort, status]);
-  const hidePaths = status === "connecting" && isLocal;
+  }, [isLocal, localPort, status, isFirstLoad]);
   const connectDisabled = status === "connecting";
   const connectLabel = connectDisabled ? "Connecting…" : "Connect";
 
@@ -169,7 +215,8 @@ export const GatewayConnectScreen = ({
           Connecting…
         </p>
       ) : null}
-      {error ? <p className="text-xs leading-snug text-destructive">{error}</p> : null}
+      <ErrorBlock error={error} section="remote" />
+      <RetryIndicator retryState={error?.section === "remote" ? retryState : null} onStop={onStopRetrying} />
     </div>
   );
 
@@ -181,14 +228,16 @@ export const GatewayConnectScreen = ({
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
           ) : (
             <span
-              className={`h-2.5 w-2.5 rounded-full ${isLocal ? "bg-destructive" : "bg-amber-500"}`}
+              className={`h-2.5 w-2.5 rounded-full ${
+                isFirstLoad ? "bg-amber-500" : isLocal ? "bg-destructive" : "bg-amber-500"
+              }`}
             />
           )}
           <p className="text-sm font-semibold text-foreground">{statusCopy}</p>
         </div>
       </div>
 
-      {hidePaths ? null : isLocal ? (
+      {isLocal ? (
         <>
           <div className="rounded-lg border border-border/45 bg-card/65 px-4 py-4 sm:px-6 sm:py-5">
             <div className="space-y-1.5">
@@ -214,7 +263,8 @@ export const GatewayConnectScreen = ({
                 Connecting…
               </p>
             ) : null}
-            {error ? <p className="text-xs leading-snug text-destructive">{error}</p> : null}
+            <ErrorBlock error={error} section="local" />
+            <RetryIndicator retryState={error?.section === "local" ? retryState : null} onStop={onStopRetrying} />
           </div>
 
           <div className="rounded-lg border border-border/40 bg-card/60 px-4 py-3.5 sm:px-6 sm:py-4">

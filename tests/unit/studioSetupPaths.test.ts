@@ -9,7 +9,7 @@ describe("studio setup paths", () => {
     const { resolveStudioSettingsPath } = await import("../../server/studio-settings");
     const settingsPath = resolveStudioSettingsPath({
       OPENCLAW_STATE_DIR: "/tmp/openclaw-state",
-    } as NodeJS.ProcessEnv);
+    } as unknown as NodeJS.ProcessEnv);
     expect(settingsPath).toBe("/tmp/openclaw-state/openclaw-studio/settings.json");
   });
 

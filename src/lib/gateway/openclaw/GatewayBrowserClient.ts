@@ -365,7 +365,7 @@ export type GatewayBrowserClientOptions = {
   instanceId?: string;
   onHello?: (hello: GatewayHelloOk) => void;
   onEvent?: (evt: GatewayEventFrame) => void;
-  onClose?: (info: { code: number; reason: string }) => void;
+  onClose?: (info: { code: number; reason: string; error?: Error }) => void;
   onGap?: (info: { expected: number; received: number }) => void;
 };
 
@@ -396,6 +396,7 @@ export class GatewayBrowserClient {
   private connectSent = false;
   private connectTimer: number | null = null;
   private backoffMs = 800;
+  private lastConnectError: Error | null = null;
 
   constructor(private opts: GatewayBrowserClientOptions) {}
 
@@ -423,8 +424,10 @@ export class GatewayBrowserClient {
     this.ws.onclose = (ev) => {
       const reason = String(ev.reason ?? "");
       this.ws = null;
+      const connectError = this.lastConnectError;
+      this.lastConnectError = null;
       this.flushPending(new Error(`gateway closed (${ev.code}): ${reason}`));
-      this.opts.onClose?.({ code: ev.code, reason });
+      this.opts.onClose?.({ code: ev.code, reason, error: connectError ?? undefined });
       this.scheduleReconnect();
     };
     this.ws.onerror = () => {
@@ -549,6 +552,7 @@ export class GatewayBrowserClient {
         if (canFallbackToShared && deviceIdentity) {
           clearDeviceAuthToken({ deviceId: deviceIdentity.deviceId, role, scope: authScopeKey });
         }
+        this.lastConnectError = err instanceof Error ? err : new Error("connect failed");
         const rawReason =
           err instanceof GatewayResponseError
             ? `connect failed: ${err.code} ${err.message}`

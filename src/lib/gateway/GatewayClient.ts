@@ -14,6 +14,7 @@ import type { StudioSettingsResponse } from "@/lib/studio/coordinator";
 import { resolveStudioProxyGatewayUrl } from "@/lib/gateway/proxy-url";
 import { ensureGatewayReloadModeHotForLocalStudio } from "@/lib/gateway/gatewayReloadMode";
 import { GatewayResponseError } from "@/lib/gateway/errors";
+import { isLocalGatewayUrl } from "@/lib/gateway/local-gateway";
 
 export type ReqFrame = {
   type: "req";
@@ -174,8 +175,8 @@ export class GatewayClient {
       onEvent: (event) => {
         this.eventHandlers.forEach((handler) => handler(event));
       },
-      onClose: ({ code, reason }) => {
-        const err = new Error(`Gateway closed (${code}): ${reason}`);
+      onClose: ({ code, reason, error: connectError }) => {
+        const err = connectError ?? new Error(`Gateway closed (${code}): ${reason}`);
         if (this.rejectConnect) {
           this.rejectConnect(err);
           this.clearConnectPromise();
@@ -311,20 +312,82 @@ export const syncGatewaySessionSettings = async ({
   return await client.call<GatewaySessionsPatchResult>("sessions.patch", payload);
 };
 
+export type GatewayErrorInfo = {
+  message: string;
+  code?: string;
+  section: "local" | "remote";
+  guidance?: string;
+};
+
 const doctorFixHint =
   "Run `npx openclaw doctor --fix` on the gateway host (or `pnpm openclaw doctor --fix` in a source checkout).";
 
-const formatGatewayError = (error: unknown) => {
+type FormattedError = { message: string; guidance?: string };
+
+const ERROR_GUIDANCE: Record<string, FormattedError> = {
+  "studio.upstream_error": {
+    message: "Gateway not reachable.",
+    guidance: "Start the gateway with the command above, then click Connect.",
+  },
+  "studio.gateway_token_missing": {
+    message: "Token not configured.",
+    guidance: "Set your gateway token on the Studio host.",
+  },
+  "studio.gateway_url_missing": {
+    message: "Gateway URL not configured.",
+    guidance: "Configure the upstream gateway URL on the Studio host.",
+  },
+  "studio.gateway_url_invalid": {
+    message: "Gateway URL is invalid.",
+    guidance: "Check the upstream gateway URL format.",
+  },
+  "studio.settings_load_failed": {
+    message: "Could not load Studio settings.",
+    guidance: "Check the Studio server logs.",
+  },
+  "studio.upstream_closed": {
+    message: "Gateway connection was closed.",
+    guidance: "The upstream gateway may have restarted.",
+  },
+};
+
+const isAuthLikeError = (msg: string, code?: string): boolean => {
+  if (code === "AUTH_FAILED" || code === "UNAUTHORIZED") return true;
+  const lower = msg.toLowerCase();
+  return (
+    lower.includes("unauthorized") ||
+    lower.includes("forbidden") ||
+    lower.includes("invalid token") ||
+    lower.includes("token required")
+  );
+};
+
+const formatGatewayError = (error: unknown): FormattedError => {
   if (error instanceof GatewayResponseError) {
-    if (error.code === "INVALID_REQUEST" && /invalid config/i.test(error.message)) {
-      return `Gateway error (${error.code}): ${error.message}. ${doctorFixHint}`;
+    if (isAuthLikeError(error.message, error.code)) {
+      return { message: "Token rejected.", guidance: "Check your gateway token." };
     }
-    return `Gateway error (${error.code}): ${error.message}`;
+    const mapped = ERROR_GUIDANCE[error.code];
+    if (mapped) return mapped;
+    if (error.code === "INVALID_REQUEST" && /invalid config/i.test(error.message)) {
+      return {
+        message: `Gateway error (${error.code}): ${error.message}`,
+        guidance: doctorFixHint,
+      };
+    }
+    return { message: `Gateway error (${error.code}): ${error.message}` };
   }
   if (error instanceof Error) {
-    return error.message;
+    const lower = error.message.toLowerCase();
+    if (lower.includes("timeout") || lower.includes("timed out")) {
+      return {
+        message: "Gateway not responding.",
+        guidance: "Check that the gateway is running and reachable.",
+      };
+    }
+    return { message: error.message };
   }
-  return "Unknown gateway error.";
+  return { message: "Unknown gateway error." };
 };
 
 export type GatewayConnectionState = {
@@ -333,9 +396,12 @@ export type GatewayConnectionState = {
   gatewayUrl: string;
   token: string;
   localGatewayDefaults: StudioGatewaySettings | null;
-  error: string | null;
+  error: GatewayErrorInfo | null;
+  retryState: { attempt: number; max: number } | null;
+  connectAttemptCount: number;
   connect: () => Promise<void>;
   disconnect: () => void;
+  stopRetrying: () => void;
   useLocalGatewayDefaults: () => void;
   setGatewayUrl: (value: string) => void;
   setToken: (value: string) => void;
@@ -349,16 +415,9 @@ type StudioSettingsCoordinatorLike = {
   flushPending: () => Promise<void>;
 };
 
-const isAuthError = (errorMessage: string | null): boolean => {
-  if (!errorMessage) return false;
-  const lower = errorMessage.toLowerCase();
-  return (
-    lower.includes("auth") ||
-    lower.includes("unauthorized") ||
-    lower.includes("forbidden") ||
-    lower.includes("invalid token") ||
-    lower.includes("token required")
-  );
+const isAuthError = (error: GatewayErrorInfo | null): boolean => {
+  if (!error) return false;
+  return isAuthLikeError(error.message, error.code);
 };
 
 const MAX_AUTO_RETRY_ATTEMPTS = 20;
@@ -381,7 +440,9 @@ export const useGatewayConnection = (
     null
   );
   const [status, setStatus] = useState<GatewayStatus>("disconnected");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<GatewayErrorInfo | null>(null);
+  const [retryState, setRetryState] = useState<{ attempt: number; max: number } | null>(null);
+  const [connectAttemptCount, setConnectAttemptCount] = useState(0);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   useEffect(() => {
@@ -407,7 +468,7 @@ export const useGatewayConnection = (
       } catch (err) {
         if (!cancelled) {
           const message = err instanceof Error ? err.message : "Failed to load gateway settings.";
-          setError(message);
+          setError({ message, section: "remote" });
         }
       } finally {
         if (!cancelled) {
@@ -447,7 +508,12 @@ export const useGatewayConnection = (
   }, [client]);
 
   const connect = useCallback(async () => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
     setError(null);
+    setConnectAttemptCount((prev) => prev + 1);
     wasManualDisconnectRef.current = false;
     try {
       await settingsCoordinator.flushPending();
@@ -463,8 +529,15 @@ export const useGatewayConnection = (
         upstreamGatewayUrl: gatewayUrl,
       });
       retryAttemptRef.current = 0;
+      setRetryState(null);
     } catch (err) {
-      setError(formatGatewayError(err));
+      const formatted = formatGatewayError(err);
+      setError({
+        message: formatted.message,
+        guidance: formatted.guidance,
+        code: err instanceof GatewayResponseError ? err.code : undefined,
+        section: isLocalGatewayUrl(gatewayUrl) ? "local" : "remote",
+      });
     }
   }, [client, gatewayUrl, settingsCoordinator, token]);
 
@@ -483,13 +556,17 @@ export const useGatewayConnection = (
     if (wasManualDisconnectRef.current) return;
     if (!gatewayUrl.trim()) return;
     if (isAuthError(error)) return;
-    if (retryAttemptRef.current >= MAX_AUTO_RETRY_ATTEMPTS) return;
+    if (retryAttemptRef.current >= MAX_AUTO_RETRY_ATTEMPTS) {
+      setRetryState(null);
+      return;
+    }
 
     const attempt = retryAttemptRef.current;
     const delay = Math.min(
       INITIAL_RETRY_DELAY_MS * Math.pow(1.5, attempt),
       MAX_RETRY_DELAY_MS
     );
+    setRetryState({ attempt: attempt + 1, max: MAX_AUTO_RETRY_ATTEMPTS });
     retryTimerRef.current = setTimeout(() => {
       retryAttemptRef.current = attempt + 1;
       void connect();
@@ -507,6 +584,7 @@ export const useGatewayConnection = (
   useEffect(() => {
     if (status === "connected") {
       retryAttemptRef.current = 0;
+      setRetryState(null);
     }
   }, [status]);
 
@@ -540,9 +618,19 @@ export const useGatewayConnection = (
 
   const disconnect = useCallback(() => {
     setError(null);
+    setRetryState(null);
     wasManualDisconnectRef.current = true;
     client.disconnect();
   }, [client]);
+
+  const stopRetrying = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    wasManualDisconnectRef.current = true;
+    setRetryState(null);
+  }, []);
 
   const clearError = useCallback(() => {
     setError(null);
@@ -555,8 +643,11 @@ export const useGatewayConnection = (
     token,
     localGatewayDefaults,
     error,
+    retryState,
+    connectAttemptCount,
     connect,
     disconnect,
+    stopRetrying,
     useLocalGatewayDefaults,
     setGatewayUrl,
     setToken,
