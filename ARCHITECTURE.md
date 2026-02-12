@@ -6,12 +6,14 @@ OpenClaw Studio is a gateway-first, single-user Next.js App Router UI for managi
 - Local persistence for gateway connection + focused-view preferences via a JSON settings file.
 - A same-origin WebSocket bridge (`/api/gateway/ws`) from browser to the upstream OpenClaw gateway.
 - Gateway-backed edits for agent config and agent files.
+- **Convex** reactive database for persistent, real-time data beyond gateway state.
 
 Primary goals:
 - **Gateway-first**: agents, sessions, and config live in the gateway; Studio stores only UI settings.
 - **Remote-friendly**: tailnet/remote gateways are first-class.
 - **Clear boundaries**: client UI vs server routes vs external gateway/config.
 - **Predictable state**: gateway is source of truth; local settings only for focused preferences + connection.
+- **Convex for persistence**: structured data that needs to survive beyond gateway sessions lives in Convex.
 - **Maintainability**: feature-focused modules, minimal abstractions.
 
 Non-goals:
@@ -37,14 +39,17 @@ This keeps feature cohesion high while preserving a clear client/server boundary
 - **Local OpenClaw config + paths** (`src/lib/clawdbot`): state/config path resolution with `OPENCLAW_*` env overrides (`src/lib/clawdbot/paths.ts`). Gateway URL/token in Studio are sourced from studio settings.
 - **Shared agent config-list helpers** (`src/lib/gateway/agentConfig.ts`): pure `agents.list` read/write/upsert helpers used by gateway config patching to keep list-shape semantics aligned.
 - **Task control plane** (`src/app/control-plane`, `src/app/api/task-control-plane`, `src/lib/task-control-plane/read-model.ts`): a read-only status board driven by Beads (`br`) JSON output. The API route is the server boundary for invoking `br` and parsing its JSON.
+- **Convex database** (`convex/`, `src/providers/ConvexClientProvider.tsx`): reactive database-as-a-service for persistent, real-time data. Schema defined in `convex/schema.ts`, server functions (queries/mutations/actions) in `convex/`. Auto-generated types in `convex/_generated/`. The `ConvexClientProvider` wraps the app in `src/app/layout.tsx` and provides a singleton `ConvexReactClient` connected to the deployment specified by `NEXT_PUBLIC_CONVEX_URL`.
 - **Shared utilities** (`src/lib/*`): env, ids, names, avatars, message parsing/normalization (including tool-line formatting) in `src/lib/text/message-extract.ts`, cron types + selector helpers + gateway call helpers in `src/lib/cron/types.ts`, logging, filesystem helpers.
 
 ## Directory layout (top-level)
 - `src/app`: Next.js App Router pages, layouts, global styles, and API routes.
 - `src/features`: feature-first UI modules (currently focused agent-management components under `features/agents`).
 - `src/lib`: domain utilities, adapters, API clients, and shared logic.
+- `src/providers`: React context providers (e.g. `ConvexClientProvider`).
 - `src/components`: shared UI components (minimal use today).
 - `src/styles`: shared styling assets.
+- `convex/`: Convex backend — schema, functions, and auto-generated types (`_generated/`).
 - `server`: custom Node server and WS proxy for gateway bridging + access gate.
 - `public`: static assets.
 - `tests`, `playwright.config.ts`, `vitest.config.ts`: automated testing.
@@ -92,13 +97,24 @@ Flow:
 - **Mutation boundary**: `applySessionSettingMutation` in `src/features/agents/state/sessionSettingsMutations.ts` owns optimistic store updates, `sessionCreated` guard logic, sync success updates, and user-facing failure lines.
 - **Transport boundary**: `syncGatewaySessionSettings` in `src/lib/gateway/GatewayClient.ts` is the only client-side builder/invoker for `sessions.patch` payloads.
 
-### 6) Task control plane (Beads)
+### 6) Convex (reactive database)
+- **Client boundary**: `ConvexClientProvider` in `src/providers/ConvexClientProvider.tsx` creates a singleton `ConvexReactClient` and wraps the app tree via `ConvexProvider`. React components use `useQuery`/`useMutation` hooks from `convex/react` to read/write data.
+- **Server boundary**: Convex functions (queries, mutations, actions) live in `convex/` and run on the Convex cloud. Schema is defined in `convex/schema.ts`.
+- **Dev workflow**: run `npm run dev:convex` alongside `npm run dev` to watch and push Convex function changes in development.
+
+Flow:
+1. `ConvexReactClient` connects to the Convex deployment via `NEXT_PUBLIC_CONVEX_URL`.
+2. React components subscribe to queries — Convex pushes real-time updates over WebSocket.
+3. Mutations are called from the client and execute transactionally on the Convex server.
+4. Schema changes and function deploys happen via `npx convex dev` (dev) or `npx convex deploy` (prod).
+
+### 7) Task control plane (Beads)
 - **UI boundary**: the `/control-plane` page fetches `TaskControlPlaneResponse` from `/api/task-control-plane`.
 - **Server boundary**: `src/app/api/task-control-plane/route.ts` runs the Beads CLI (`br`) via `node:child_process.spawnSync`, parses JSON output, and maps errors to HTTP 400 with a “Beads workspace not initialized…” message for init/workspace errors, and HTTP 502 for other failures. If `OPENCLAW_TASK_CONTROL_PLANE_GATEWAY_BEADS_DIR` is set, the route runs `br ... --json` on the gateway host over SSH (host derived from the configured gateway URL unless `OPENCLAW_TASK_CONTROL_PLANE_SSH_TARGET` is set).
 - **Read-model boundary**: `src/lib/task-control-plane/read-model.ts` converts raw Beads lists into the UI snapshot shape.
 
 ## Cross-cutting concerns
-- **Configuration**: environment variables are read directly from `process.env` (for example `NEXT_PUBLIC_GATEWAY_URL` for client defaults and `STUDIO_UPSTREAM_GATEWAY_URL`/`STUDIO_UPSTREAM_GATEWAY_TOKEN` for server overrides). `lib/clawdbot/paths.ts` resolves config path/state dirs, honoring `OPENCLAW_STATE_DIR`/`OPENCLAW_CONFIG_PATH` and legacy fallbacks. Studio settings live under `<state dir>/openclaw-studio/settings.json`. When Studio token is missing, settings loaders can fall back to token/port from `<state dir>/openclaw.json`. Loopback-IP gateway URLs are normalized to `localhost` in Studio settings, and the WS proxy rewrites loopback upstream origins to `localhost` for control-UI secure-context compatibility.
+- **Configuration**: environment variables are read directly from `process.env` (for example `NEXT_PUBLIC_GATEWAY_URL` for client defaults, `NEXT_PUBLIC_CONVEX_URL` for Convex deployment, and `STUDIO_UPSTREAM_GATEWAY_URL`/`STUDIO_UPSTREAM_GATEWAY_TOKEN` for server overrides). `lib/clawdbot/paths.ts` resolves config path/state dirs, honoring `OPENCLAW_STATE_DIR`/`OPENCLAW_CONFIG_PATH` and legacy fallbacks. Studio settings live under `<state dir>/openclaw-studio/settings.json`. When Studio token is missing, settings loaders can fall back to token/port from `<state dir>/openclaw.json`. Loopback-IP gateway URLs are normalized to `localhost` in Studio settings, and the WS proxy rewrites loopback upstream origins to `localhost` for control-UI secure-context compatibility. Convex deployment config lives in `.env.local` (`CONVEX_DEPLOYMENT` + `NEXT_PUBLIC_CONVEX_URL`).
 - **Logging**: API routes and the gateway client use built-in `console.*` logging.
 - **Error handling**:
   - API routes return JSON `{ error }` with appropriate status.
@@ -113,7 +129,8 @@ Flow:
 - **Validation**: request payload validation in API routes and typed client/server helpers in `src/lib/*`.
 
 ## Major design decisions & trade-offs
-- **Local settings file over DB**: fast, local-first persistence for gateway connection + focused preferences; trade-off is no concurrency or multi-user support.
+- **Convex for structured persistence, local settings file for UI preferences**: Convex provides reactive, real-time persistence for data that needs to survive beyond gateway sessions. Local settings file remains for gateway connection + focused preferences (fast, local-first). Trade-off is two persistence layers, but they serve distinct purposes.
+- **Local settings file over DB for UI preferences**: fast, local-first persistence for gateway connection + focused preferences; trade-off is no concurrency or multi-user support.
 - **Same-origin WS proxy instead of direct browser->gateway WS**: allows server-side token custody/injection and easier local/remote switching; trade-off is one extra hop and custom-server ownership.
 - **Gateway-first agent records**: records map 1:1 to `agents.list` entries with main sessions; trade-off is no local-only agent concept.
 - **Gateway-backed config + agent-file edits**: create/rename/heartbeat/delete via `config.patch`, agent files via gateway WebSocket `agents.files.get`/`agents.files.set`; trade-off is reliance on gateway availability.
@@ -138,11 +155,13 @@ C4Context
   System(ui, "OpenClaw Studio", "Next.js App Router UI")
   System(proxy, "Studio WS Proxy", "Custom server /api/gateway/ws")
   System_Ext(gateway, "OpenClaw Gateway", "WebSocket runtime")
+  System_Ext(convex, "Convex", "Reactive database")
   System_Ext(fs, "Local Filesystem", "settings.json and other local reads (e.g. path suggestions)")
 
   Rel(user, ui, "Uses")
   Rel(ui, proxy, "WebSocket frames")
   Rel(proxy, gateway, "WebSocket frames")
+  Rel(ui, convex, "Real-time queries/mutations")
   Rel(ui, fs, "HTTP to API routes -> fs read/write")
 ```
 
@@ -153,17 +172,19 @@ C4Container
   Person(user, "User")
 
   Container_Boundary(app, "Next.js App") {
-    Container(client, "Client UI", "React", "Focused agent-management UI, state, gateway client")
+    Container(client, "Client UI", "React", "Focused agent-management UI, state, gateway client, Convex hooks")
     Container(api, "API Routes", "Next.js route handlers", "Studio settings, path suggestions, task control plane")
     Container(proxy, "WS Proxy", "Custom Node server", "Bridges /api/gateway/ws to upstream gateway with token injection")
   }
 
   Container_Ext(gateway, "Gateway", "WebSocket", "Agent runtime")
+  Container_Ext(convex, "Convex", "WebSocket", "Reactive database with server functions")
   Container_Ext(fs, "Filesystem", "Local", "settings.json and other local reads (e.g. path suggestions)")
 
   Rel(user, client, "Uses")
   Rel(client, api, "HTTP JSON")
   Rel(client, proxy, "WebSocket /api/gateway/ws")
+  Rel(client, convex, "WebSocket (real-time queries/mutations)")
   Rel(proxy, gateway, "WebSocket")
   Rel(api, fs, "Read/Write")
   Rel(proxy, fs, "Read settings/token")
@@ -184,3 +205,4 @@ C4Container
 ## Future-proofing notes
 - If multi-user support becomes a goal, replace the settings file with a DB-backed service and introduce authentication at the API boundary.
 - If gateway protocol evolves, isolate changes within `src/lib/gateway` and keep UI call sites stable.
+- Convex is currently on the free tier. When self-hosting becomes a goal, the schema and functions in `convex/` remain the same — only the deployment target changes (`CONVEX_SELF_HOSTED_URL` replaces `NEXT_PUBLIC_CONVEX_URL`).

@@ -16,7 +16,16 @@ git clone https://github.com/grp06/openclaw-studio.git
 cd openclaw-studio
 npm install
 cp .env.example .env
-npm run dev
+```
+
+### Convex setup
+The app uses [Convex](https://convex.dev) as its reactive database. To configure:
+1. Create a free Convex account at https://dashboard.convex.dev
+2. Run `npx convex dev --once` to authenticate and link the project (creates `.env.local` with deployment URL)
+3. Run the Convex dev watcher alongside the app:
+```bash
+npm run dev          # Next.js app (terminal 1)
+npm run dev:convex   # Convex function watcher (terminal 2)
 ```
 
 ## Testing
