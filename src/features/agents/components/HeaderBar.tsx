@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { GatewayStatus } from "@/lib/gateway/GatewayClient";
-import { Brain, Plug } from "lucide-react";
+import { Brain, LogOut, Plug } from "lucide-react";
 
 type HeaderBarProps = {
   status: GatewayStatus;
@@ -10,6 +10,12 @@ type HeaderBarProps = {
   brainFilesOpen: boolean;
   brainDisabled?: boolean;
   showConnectionSettings?: boolean;
+  /** Multi-tenant: current user + org context */
+  userContext?: {
+    name: string;
+    orgName: string;
+    onSignOut: () => void;
+  } | null;
 };
 
 export const HeaderBar = ({
@@ -19,6 +25,7 @@ export const HeaderBar = ({
   brainFilesOpen,
   brainDisabled = false,
   showConnectionSettings = true,
+  userContext,
 }: HeaderBarProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -44,10 +51,17 @@ export const HeaderBar = ({
   return (
     <div className="glass-panel fade-up relative z-[180] px-4 py-2">
       <div className="grid items-center gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
-        <div className="min-w-0">
+        <div className="min-w-0 flex items-center gap-3">
           <p className="console-title text-2xl leading-none text-foreground sm:text-3xl">
             OpenClaw Studio
           </p>
+          {userContext ? (
+            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/40 px-2 py-1 font-mono text-[10px] text-muted-foreground">
+              <span className="font-semibold text-foreground">{userContext.orgName}</span>
+              <span className="text-border">|</span>
+              <span>{userContext.name}</span>
+            </span>
+          ) : null}
         </div>
 
         <div className="flex items-center justify-end gap-2">
@@ -103,6 +117,17 @@ export const HeaderBar = ({
                 </div>
               ) : null}
             </div>
+          ) : null}
+          {userContext ? (
+            <button
+              type="button"
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-input/80 bg-surface-3 text-muted-foreground transition hover:border-destructive/50 hover:bg-destructive/10 hover:text-destructive"
+              onClick={userContext.onSignOut}
+              title="Sign out"
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="sr-only">Sign out</span>
+            </button>
           ) : null}
         </div>
       </div>

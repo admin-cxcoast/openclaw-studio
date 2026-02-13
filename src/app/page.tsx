@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useQuery as useConvexQuery } from "convex/react";
+import { useAuthActions } from "@convex-dev/auth/react";
+import { api as convexApi } from "../../convex/_generated/api";
 import { AgentChatPanel } from "@/features/agents/components/AgentChatPanel";
 import {
   AgentBrainPanel,
@@ -67,7 +71,9 @@ import {
   parseAgentIdFromSessionKey,
   isGatewayDisconnectLikeError,
   type EventFrame,
+  type GatewayOverride,
 } from "@/lib/gateway/GatewayClient";
+import { resolveStudioProxyGatewayUrl } from "@/lib/gateway/proxy-url";
 import { fetchJson } from "@/lib/http";
 import { bootstrapAgentBrainFilesFromTemplate } from "@/lib/gateway/agentFiles";
 import { deleteAgentViaStudio } from "@/features/agents/operations/deleteAgentOperation";
@@ -186,7 +192,13 @@ const resolveNextNewAgentName = (agents: AgentState[]) => {
   throw new Error("Unable to allocate a unique agent name.");
 };
 
-const AgentStudioPage = () => {
+const AgentStudioPage = ({
+  gatewayOverride,
+  userContext,
+}: {
+  gatewayOverride?: GatewayOverride | null;
+  userContext?: { name: string; orgName: string; onSignOut: () => void } | null;
+}) => {
   const [settingsCoordinator] = useState(() => createStudioSettingsCoordinator());
   const {
     client,
@@ -203,7 +215,7 @@ const AgentStudioPage = () => {
     useLocalGatewayDefaults,
     setGatewayUrl,
     setToken,
-  } = useGatewayConnection(settingsCoordinator);
+  } = useGatewayConnection(settingsCoordinator, gatewayOverride);
 
   const { state, dispatch, hydrateAgents, setError, setLoading } = useAgentStore();
   const [showConnectionPanel, setShowConnectionPanel] = useState(false);
@@ -1786,8 +1798,8 @@ const AgentStudioPage = () => {
 
   if (!agentsLoadedOnce && !didAttemptGatewayConnect) {
     return (
-      <div className="relative min-h-screen w-screen overflow-hidden bg-background">
-        <div className="flex min-h-screen items-center justify-center px-6">
+      <div className="relative h-full w-full overflow-hidden bg-background">
+        <div className="flex h-full items-center justify-center px-6">
           <div className="glass-panel w-full max-w-md px-6 py-6 text-center">
             <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               OpenClaw Studio
@@ -1802,9 +1814,76 @@ const AgentStudioPage = () => {
   }
 
   if (!agentsLoadedOnce && status !== "connected") {
+    // Multi-tenant: simplified connecting screen (no manual URL/token form)
+    if (gatewayOverride) {
+      return (
+        <div className="relative h-full w-full overflow-hidden bg-background">
+          <div className="relative z-10 flex h-full flex-col gap-4 px-3 py-3 sm:px-4 sm:py-4 md:px-6 md:py-6">
+            <div className="w-full">
+              <HeaderBar
+                status={status}
+                onConnectionSettings={() => {}}
+                onBrainFiles={handleBrainToggle}
+                brainFilesOpen={brainPanelOpen}
+                brainDisabled
+                showConnectionSettings={false}
+                userContext={userContext}
+              />
+            </div>
+            <div className="mx-auto flex w-full max-w-md flex-1 items-center justify-center">
+              <div className="glass-panel w-full px-6 py-6 text-center">
+                {status === "connecting" ? (
+                  <>
+                    <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                      Connecting to gateway
+                    </div>
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      {userContext?.orgName ?? "Your organization"}
+                    </div>
+                  </>
+                ) : gatewayError ? (
+                  <>
+                    <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-destructive">
+                      Connection failed
+                    </div>
+                    <div className="mt-2 text-sm text-destructive">
+                      {gatewayError.message}
+                    </div>
+                    {gatewayError.guidance ? (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {gatewayError.guidance}
+                      </div>
+                    ) : null}
+                    {retryState ? (
+                      <div className="mt-3 text-xs text-muted-foreground">
+                        Retrying… ({retryState.attempt}/{retryState.max})
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="mt-4 h-10 rounded-md bg-primary px-6 text-xs font-semibold uppercase tracking-[0.1em] text-primary-foreground transition hover:brightness-95"
+                        onClick={() => void connect()}
+                      >
+                        Retry
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                    Connecting…
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Legacy: full manual connection screen
     return (
-      <div className="relative min-h-screen w-screen overflow-hidden bg-background">
-        <div className="relative z-10 flex h-screen flex-col gap-4 px-3 py-3 sm:px-4 sm:py-4 md:px-6 md:py-6">
+      <div className="relative h-full w-full overflow-hidden bg-background">
+        <div className="relative z-10 flex h-full flex-col gap-4 px-3 py-3 sm:px-4 sm:py-4 md:px-6 md:py-6">
           <div className="w-full">
             <HeaderBar
               status={status}
@@ -1812,6 +1891,8 @@ const AgentStudioPage = () => {
               onBrainFiles={handleBrainToggle}
               brainFilesOpen={brainPanelOpen}
               brainDisabled
+              showConnectionSettings={!gatewayOverride}
+              userContext={userContext}
             />
           </div>
           <GatewayConnectScreen
@@ -1835,8 +1916,8 @@ const AgentStudioPage = () => {
 
   if (status === "connected" && !agentsLoadedOnce) {
     return (
-      <div className="relative min-h-screen w-screen overflow-hidden bg-background">
-        <div className="flex min-h-screen items-center justify-center px-6">
+      <div className="relative h-full w-full overflow-hidden bg-background">
+        <div className="flex h-full items-center justify-center px-6">
           <div className="glass-panel w-full max-w-md px-6 py-6 text-center">
             <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               OpenClaw Studio
@@ -1849,7 +1930,7 @@ const AgentStudioPage = () => {
   }
 
   return (
-    <div className="relative min-h-screen w-screen overflow-hidden bg-background">
+    <div className="relative h-full w-full overflow-hidden bg-background">
       {state.loading ? (
         <div className="pointer-events-none fixed bottom-4 left-0 right-0 z-50 flex justify-center px-3">
           <div className="glass-panel px-6 py-3 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
@@ -1865,6 +1946,8 @@ const AgentStudioPage = () => {
             onBrainFiles={handleBrainToggle}
             brainFilesOpen={brainPanelOpen}
             brainDisabled={!hasAnyAgents}
+            showConnectionSettings={!gatewayOverride}
+            userContext={userContext}
           />
         </div>
 
@@ -2161,10 +2244,183 @@ const AgentStudioPage = () => {
   );
 };
 
-export default function Home() {
-  return (
-    <AgentStoreProvider>
-      <AgentStudioPage />
-    </AgentStoreProvider>
+// ── Auth-aware entry point ──────────────────────────────
+// Checks user role and routes accordingly:
+//   superAdmin → redirect to /admin
+//   orgAdmin/member → load studio with org context
+//   no profile → show pending message
+
+function AuthGate() {
+  const router = useRouter();
+  const currentUser = useConvexQuery(convexApi.users.currentUser);
+  const myOrgs = useConvexQuery(convexApi.users.getMyOrgs);
+  const { signOut } = useAuthActions();
+  const [selectedGatewayIdx, setSelectedGatewayIdx] = useState(0);
+
+  // Resolve first org for gateway lookup (undefined while loading to skip)
+  const firstOrgId = myOrgs?.orgs?.[0]?.orgId;
+  const myGateways = useConvexQuery(
+    convexApi.gatewayInstances.getMyGateways,
+    firstOrgId ? { orgId: firstOrgId } : "skip"
   );
+
+  // Still loading
+  if (currentUser === undefined || myOrgs === undefined) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <span className="font-mono text-xs text-muted-foreground">
+          Loading...
+        </span>
+      </div>
+    );
+  }
+
+  // Not authenticated (middleware should catch this, but safety)
+  if (currentUser === null || myOrgs === null) {
+    router.replace("/signin");
+    return null;
+  }
+
+  // SuperAdmin → redirect to /admin dashboard
+  if (currentUser.profile?.role === "superAdmin") {
+    router.replace("/admin");
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <span className="font-mono text-xs text-muted-foreground">
+          Redirecting to admin...
+        </span>
+      </div>
+    );
+  }
+
+  // No profile (account pending setup by admin)
+  if (!currentUser.profile) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background p-4">
+        <div className="glass-panel w-full max-w-sm rounded-xl p-6 text-center">
+          <h1 className="console-title mb-2 text-2xl text-foreground">
+            Account Pending
+          </h1>
+          <p className="font-mono text-xs text-muted-foreground">
+            Your account has not been set up yet. Please contact your
+            administrator.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // No org membership
+  if (myOrgs.orgs.length === 0) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background p-4">
+        <div className="glass-panel w-full max-w-sm rounded-xl p-6 text-center">
+          <h1 className="console-title mb-2 text-2xl text-foreground">
+            No Organization
+          </h1>
+          <p className="font-mono text-xs text-muted-foreground">
+            You are not assigned to any organization. Please contact your
+            administrator.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Wait for gateway query to resolve
+  if (myGateways === undefined) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <span className="font-mono text-xs text-muted-foreground">
+          Resolving gateway...
+        </span>
+      </div>
+    );
+  }
+
+  // No gateway instances configured for this org
+  if (!myGateways?.gateways?.length || !myGateways.gateways.some((g) => g.gatewayUrl)) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background p-4">
+        <div className="glass-panel w-full max-w-sm rounded-xl p-6 text-center">
+          <h1 className="console-title mb-2 text-2xl text-foreground">
+            No Gateway
+          </h1>
+          <p className="font-mono text-xs text-muted-foreground">
+            No gateway is configured for your organization
+            {myGateways?.org?.name ? ` (${myGateways.org.name})` : ""}.
+            Please contact your administrator.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const gateways = myGateways.gateways;
+  // Clamp index if gateways changed
+  const safeIdx = selectedGatewayIdx >= gateways.length ? 0 : selectedGatewayIdx;
+  const activeGateway = gateways[safeIdx];
+
+  // Build gateway override from Convex data
+  const sshHost = activeGateway.vpsIp || activeGateway.vpsHostname;
+  const gatewayOverride: GatewayOverride = {
+    gatewayUrl: resolveStudioProxyGatewayUrl(activeGateway.gatewayUrl, sshHost ? {
+      host: sshHost,
+      user: activeGateway.sshUser,
+      port: activeGateway.sshPort,
+    } : undefined),
+    token: activeGateway.token ?? "",
+    upstreamUrl: activeGateway.gatewayUrl,
+  };
+
+  const handleSignOut = () => void signOut().then(() => {
+    router.replace("/signin");
+  });
+
+  const userContext = {
+    name: myOrgs.name ?? currentUser.user?.email ?? "User",
+    orgName: myGateways.org?.name ?? myOrgs.orgs[0]?.name ?? "Org",
+    onSignOut: handleSignOut,
+  };
+
+  // Normal user with org + gateway → load studio
+  // key on AgentStoreProvider forces full remount (reconnect) on gateway switch
+  return (
+    <div className="flex h-screen flex-col bg-background">
+      {gateways.length > 1 && (
+        <div className="flex items-center gap-2 border-b border-border/40 bg-background/80 px-3 py-1.5">
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+            Gateway
+          </span>
+          <div className="flex gap-1">
+            {gateways.map((gw, idx) => (
+              <button
+                key={gw.instanceId}
+                onClick={() => setSelectedGatewayIdx(idx)}
+                className={`rounded px-2 py-0.5 font-mono text-[11px] transition-colors ${
+                  idx === safeIdx
+                    ? "bg-primary/20 text-primary"
+                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                }`}
+              >
+                {gw.name || `Port ${gw.port}`}
+                {gw.status === "running" && (
+                  <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="flex-1 overflow-hidden">
+        <AgentStoreProvider key={activeGateway.instanceId}>
+          <AgentStudioPage gatewayOverride={gatewayOverride} userContext={userContext} />
+        </AgentStoreProvider>
+      </div>
+    </div>
+  );
+}
+
+export default function Home() {
+  return <AuthGate />;
 }

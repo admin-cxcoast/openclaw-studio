@@ -114,6 +114,64 @@ export const updateRole = mutation({
   },
 });
 
+// ── Queries for normal authenticated users ────────────
+
+export const getMyOrgs = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+    const profile = await ctx.db
+      .query("userProfiles")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .unique();
+    if (!profile) return null;
+
+    // SuperAdmins see all orgs
+    if (profile.role === "superAdmin") {
+      const orgs = await ctx.db.query("organizations").collect();
+      return {
+        role: profile.role,
+        name: profile.name,
+        orgs: orgs.map((o) => ({
+          orgId: o._id,
+          name: o.name,
+          slug: o.slug,
+          plan: o.plan,
+          status: o.status,
+          orgRole: "owner" as const,
+        })),
+      };
+    }
+
+    // Normal users see their memberships
+    const memberships = await ctx.db
+      .query("orgMembers")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .collect();
+
+    const orgs = [];
+    for (const m of memberships) {
+      const org = await ctx.db.get(m.orgId);
+      if (!org || org.status !== "active") continue;
+      orgs.push({
+        orgId: org._id,
+        name: org.name,
+        slug: org.slug,
+        plan: org.plan,
+        status: org.status,
+        orgRole: m.role,
+      });
+    }
+
+    return {
+      role: profile.role,
+      name: profile.name,
+      orgs,
+    };
+  },
+});
+
 // ── Create user (action — calls auth:signIn internally) ─
 
 export const createUser = action({

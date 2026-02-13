@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { AdminSidebar } from "@/features/admin/components/AdminSidebar";
@@ -11,13 +12,14 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const router = useRouter();
   const current = useQuery(api.users.currentUser);
 
   useEffect(() => {
     if (current === null) {
-      window.location.href = "/signin";
+      router.replace("/signin");
     }
-  }, [current]);
+  }, [current, router]);
 
   if (current === undefined || current === null) {
     return (
@@ -30,16 +32,12 @@ export default function AdminLayout({
   }
 
   if (!current.profile || current.profile.role !== "superAdmin") {
+    router.replace("/");
     return (
-      <div className="flex h-screen items-center justify-center p-4">
-        <div className="glass-panel w-full max-w-sm rounded-xl p-6 text-center">
-          <h1 className="console-title mb-2 text-2xl text-foreground">
-            Access Denied
-          </h1>
-          <p className="font-mono text-xs text-muted-foreground">
-            Super admin privileges required.
-          </p>
-        </div>
+      <div className="flex h-screen items-center justify-center">
+        <span className="font-mono text-xs text-muted-foreground">
+          Redirecting...
+        </span>
       </div>
     );
   }

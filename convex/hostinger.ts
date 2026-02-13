@@ -61,9 +61,23 @@ export const syncVpsFromHostinger = action({
       state?: string;
     }> = await res.json();
 
+    // Load plan→capacity mapping from system settings
+    let planCapacity: Record<string, number> = {};
+    try {
+      const capacityDoc = await (ctx.runQuery as any)(api.systemSettings.getByKey, {
+        key: "vps_plan_capacity",
+      });
+      if (capacityDoc?.value) {
+        planCapacity = JSON.parse(capacityDoc.value);
+      }
+    } catch {
+      // Use defaults if not configured
+    }
+
     let synced = 0;
     for (const vm of machines) {
       const status = mapHostingerStatus(vm.state);
+      const maxInstances = vm.plan ? planCapacity[vm.plan] : undefined;
       await ctx.runMutation(api.vpsInstances.upsertFromHostinger, {
         hostingerId: String(vm.id),
         hostname: vm.hostname ?? `vps-${vm.id}`,
@@ -71,6 +85,7 @@ export const syncVpsFromHostinger = action({
         region: vm.region,
         plan: vm.plan,
         status,
+        maxInstances,
       });
       synced++;
     }
@@ -117,6 +132,128 @@ export const createVirtualMachine = action({
       status: "provisioning",
     });
     return vm;
+  },
+});
+
+// ── SSH Key Management ────────────────────────────────────
+
+export const registerSshKey = action({
+  args: { publicKey: v.string() },
+  handler: async (ctx, args): Promise<{ id: number; name: string }> => {
+    const { apiKey, apiUrl } = await fetchHostingerConfig(
+      ctx.runQuery as any,
+      ctx.runQuery as any,
+    );
+    // Check if key already registered
+    const listRes = await fetch(`${apiUrl}/api/vps/v1/public-keys`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (listRes.ok) {
+      const keys: Array<{ id: number; name: string; key: string }> =
+        await listRes.json();
+      const existing = keys.find(
+        (k) =>
+          k.name === "openclaw-studio" ||
+          k.key?.trim() === args.publicKey.trim(),
+      );
+      if (existing) {
+        return { id: existing.id, name: existing.name };
+      }
+    }
+
+    // Register new key
+    const res = await fetch(`${apiUrl}/api/vps/v1/public-keys`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "openclaw-studio",
+        key: args.publicKey.trim(),
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(
+        `Hostinger API error registering SSH key: ${res.status} ${await res.text()}`,
+      );
+    }
+    const result: { id: number; name: string } = await res.json();
+    return result;
+  },
+});
+
+export const attachSshKeyToAllVps = action({
+  args: { publicKeyId: v.number() },
+  handler: async (ctx, args): Promise<{
+    attached: number;
+    failed: number;
+    details: Array<{ hostname: string; hostingerId: string; status: number; body: string }>;
+  }> => {
+    const { apiKey, apiUrl } = await fetchHostingerConfig(
+      ctx.runQuery as any,
+      ctx.runQuery as any,
+    );
+    const vpsList = await ctx.runQuery(api.vpsInstances.list);
+    let attached = 0;
+    let failed = 0;
+    const details: Array<{ hostname: string; hostingerId: string; status: number; body: string }> = [];
+
+    for (const vps of vpsList) {
+      if (!vps.hostingerId) continue;
+      try {
+        const res = await fetch(
+          `${apiUrl}/api/vps/v1/public-keys/attach/${vps.hostingerId}`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ ids: [args.publicKeyId] }),
+          },
+        );
+        const body = await res.text();
+        details.push({
+          hostname: vps.hostname,
+          hostingerId: vps.hostingerId,
+          status: res.status,
+          body: body.slice(0, 500),
+        });
+        if (res.ok || res.status === 409) {
+          attached++;
+        } else {
+          failed++;
+        }
+      } catch (err: any) {
+        details.push({
+          hostname: vps.hostname,
+          hostingerId: vps.hostingerId,
+          status: 0,
+          body: err?.message ?? "Unknown error",
+        });
+        failed++;
+      }
+    }
+    return { attached, failed, details };
+  },
+});
+
+export const debugAttachedKeys = action({
+  args: { hostingerId: v.string() },
+  handler: async (ctx, args): Promise<unknown> => {
+    const { apiKey, apiUrl } = await fetchHostingerConfig(
+      ctx.runQuery as any,
+      ctx.runQuery as any,
+    );
+    const res = await fetch(
+      `${apiUrl}/api/vps/v1/virtual-machines/${args.hostingerId}/public-keys`,
+      { headers: { Authorization: `Bearer ${apiKey}` } },
+    );
+    if (!res.ok) {
+      return { error: `${res.status} ${await res.text()}` };
+    }
+    return res.json();
   },
 });
 

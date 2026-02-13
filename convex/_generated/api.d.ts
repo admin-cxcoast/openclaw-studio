@@ -9,9 +9,11 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as gatewayInstances from "../gatewayInstances.js";
 import type * as hostinger from "../hostinger.js";
 import type * as http from "../http.js";
 import type * as lib_authorization from "../lib/authorization.js";
+import type * as migrations_migrateVpsToGatewayInstances from "../migrations/migrateVpsToGatewayInstances.js";
 import type * as models from "../models.js";
 import type * as orgMembers from "../orgMembers.js";
 import type * as organizations from "../organizations.js";
@@ -30,9 +32,11 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  gatewayInstances: typeof gatewayInstances;
   hostinger: typeof hostinger;
   http: typeof http;
   "lib/authorization": typeof lib_authorization;
+  "migrations/migrateVpsToGatewayInstances": typeof migrations_migrateVpsToGatewayInstances;
   models: typeof models;
   orgMembers: typeof orgMembers;
   organizations: typeof organizations;

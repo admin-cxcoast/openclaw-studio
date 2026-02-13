@@ -415,6 +415,13 @@ type StudioSettingsCoordinatorLike = {
   flushPending: () => Promise<void>;
 };
 
+export type GatewayOverride = {
+  gatewayUrl: string;
+  token: string;
+  /** The actual upstream URL (passed to proxy as ?target=) */
+  upstreamUrl: string;
+};
+
 const isAuthError = (error: GatewayErrorInfo | null): boolean => {
   if (!error) return false;
   return isAuthLikeError(error.message, error.code);
@@ -425,7 +432,8 @@ const INITIAL_RETRY_DELAY_MS = 2_000;
 const MAX_RETRY_DELAY_MS = 30_000;
 
 export const useGatewayConnection = (
-  settingsCoordinator: StudioSettingsCoordinatorLike
+  settingsCoordinator: StudioSettingsCoordinatorLike,
+  override?: GatewayOverride | null
 ): GatewayConnectionState => {
   const [client] = useState(() => new GatewayClient());
   const didAutoConnect = useRef(false);
@@ -434,8 +442,12 @@ export const useGatewayConnection = (
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasManualDisconnectRef = useRef(false);
 
-  const [gatewayUrl, setGatewayUrl] = useState(DEFAULT_UPSTREAM_GATEWAY_URL);
-  const [token, setToken] = useState("");
+  const hasOverride = !!(override?.gatewayUrl && override?.upstreamUrl);
+
+  const [gatewayUrl, setGatewayUrl] = useState(
+    hasOverride ? override!.upstreamUrl : DEFAULT_UPSTREAM_GATEWAY_URL
+  );
+  const [token, setToken] = useState(hasOverride ? override!.token : "");
   const [localGatewayDefaults, setLocalGatewayDefaults] = useState<StudioGatewaySettings | null>(
     null
   );
@@ -443,9 +455,23 @@ export const useGatewayConnection = (
   const [error, setError] = useState<GatewayErrorInfo | null>(null);
   const [retryState, setRetryState] = useState<{ attempt: number; max: number } | null>(null);
   const [connectAttemptCount, setConnectAttemptCount] = useState(0);
-  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(hasOverride);
 
+  // When override changes, sync state
   useEffect(() => {
+    if (!hasOverride) return;
+    setGatewayUrl(override!.upstreamUrl);
+    setToken(override!.token);
+    loadedGatewaySettings.current = {
+      gatewayUrl: override!.upstreamUrl,
+      token: override!.token,
+    };
+    setSettingsLoaded(true);
+  }, [hasOverride, override?.upstreamUrl, override?.token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load settings from filesystem (only when NOT using override)
+  useEffect(() => {
+    if (hasOverride) return;
     let cancelled = false;
     const loadSettings = async () => {
       try {
@@ -486,7 +512,7 @@ export const useGatewayConnection = (
     return () => {
       cancelled = true;
     };
-  }, [settingsCoordinator]);
+  }, [hasOverride, settingsCoordinator]);
 
   useEffect(() => {
     return client.onStatus((nextStatus) => {
@@ -516,18 +542,28 @@ export const useGatewayConnection = (
     setConnectAttemptCount((prev) => prev + 1);
     wasManualDisconnectRef.current = false;
     try {
-      await settingsCoordinator.flushPending();
+      if (!hasOverride) {
+        await settingsCoordinator.flushPending();
+      }
+      // When override is set, use the pre-built proxy URL (includes SSH tunnel params).
+      // The token is sent inside the connect frame (not via server-side settings).
+      const proxyUrl = hasOverride
+        ? override!.gatewayUrl
+        : resolveStudioProxyGatewayUrl();
+      const connectToken = hasOverride ? override!.token : token;
       await client.connect({
-        gatewayUrl: resolveStudioProxyGatewayUrl(),
-        token,
-        authScopeKey: gatewayUrl,
+        gatewayUrl: proxyUrl,
+        token: connectToken,
+        authScopeKey: hasOverride ? override!.upstreamUrl : gatewayUrl,
         clientName: "openclaw-control-ui",
         disableDeviceAuth: true,
       });
-      await ensureGatewayReloadModeHotForLocalStudio({
-        client,
-        upstreamGatewayUrl: gatewayUrl,
-      });
+      if (!hasOverride) {
+        await ensureGatewayReloadModeHotForLocalStudio({
+          client,
+          upstreamGatewayUrl: gatewayUrl,
+        });
+      }
       retryAttemptRef.current = 0;
       setRetryState(null);
     } catch (err) {
@@ -536,10 +572,10 @@ export const useGatewayConnection = (
         message: formatted.message,
         guidance: formatted.guidance,
         code: err instanceof GatewayResponseError ? err.code : undefined,
-        section: isLocalGatewayUrl(gatewayUrl) ? "local" : "remote",
+        section: hasOverride ? "remote" : isLocalGatewayUrl(gatewayUrl) ? "local" : "remote",
       });
     }
-  }, [client, gatewayUrl, settingsCoordinator, token]);
+  }, [client, gatewayUrl, hasOverride, override, settingsCoordinator, token]);
 
   useEffect(() => {
     if (didAutoConnect.current) return;
@@ -588,7 +624,9 @@ export const useGatewayConnection = (
     }
   }, [status]);
 
+  // Persist settings changes to filesystem (only in non-override / legacy mode)
   useEffect(() => {
+    if (hasOverride) return;
     if (!settingsLoaded) return;
     const baseline = loadedGatewaySettings.current;
     if (!baseline) return;
@@ -605,7 +643,7 @@ export const useGatewayConnection = (
       },
       400
     );
-  }, [gatewayUrl, settingsCoordinator, settingsLoaded, token]);
+  }, [gatewayUrl, hasOverride, settingsCoordinator, settingsLoaded, token]);
 
   const useLocalGatewayDefaults = useCallback(() => {
     if (!localGatewayDefaults) {

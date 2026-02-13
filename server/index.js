@@ -51,6 +51,8 @@ async function main() {
       if (!accessGate.allowUpgrade(req)) return false;
       return true;
     },
+    log: (...args) => console.info("[proxy]", ...args),
+    logError: (msg, err) => console.error("[proxy]", msg, err?.message ?? err),
   });
 
   await app.prepare();
@@ -62,7 +64,9 @@ async function main() {
   });
 
   server.on("upgrade", (req, socket, head) => {
-    if (resolvePathname(req.url) === "/api/gateway/ws") {
+    const pathname = resolvePathname(req.url);
+    console.info(`[upgrade] ${pathname} (url: ${req.url?.slice(0, 200)})`);
+    if (pathname === "/api/gateway/ws") {
       proxy.handleUpgrade(req, socket, head);
       return;
     }

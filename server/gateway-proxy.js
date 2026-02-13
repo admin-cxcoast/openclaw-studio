@@ -1,4 +1,11 @@
 const { WebSocket, WebSocketServer } = require("ws");
+const { spawn } = require("node:child_process");
+const net = require("node:net");
+const path = require("node:path");
+const fs = require("node:fs");
+const os = require("node:os");
+
+const SSH_KEY_PATH = path.join(os.homedir(), ".ssh", "openclaw_studio_ed25519");
 
 const buildErrorResponse = (id, code, message) => {
   return {
@@ -55,6 +62,111 @@ const hasDeviceSignature = (params) => {
   return typeof raw === "string" && raw.trim().length > 0;
 };
 
+const extractQueryParam = (url, name) => {
+  const raw = typeof url === "string" ? url : "";
+  const idx = raw.indexOf("?");
+  if (idx === -1) return "";
+  try {
+    const params = new URLSearchParams(raw.slice(idx));
+    return params.get(name) || "";
+  } catch {
+    return "";
+  }
+};
+
+/**
+ * Find a free port on localhost for SSH tunnel.
+ */
+const findFreePort = () =>
+  new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const port = srv.address().port;
+      srv.close(() => resolve(port));
+    });
+    srv.on("error", reject);
+  });
+
+/**
+ * Establish an SSH tunnel: local port → remote host:port.
+ * Returns { localPort, close() } on success or throws on failure.
+ */
+const createSshTunnel = async ({ sshHost, sshUser, sshPort, remotePort, log, logError }) => {
+  const localPort = await findFreePort();
+  const user = sshUser || "root";
+  const portFlag = sshPort && sshPort !== 22 ? ["-p", String(sshPort)] : [];
+
+  const sshArgs = [
+    "-N", // No remote command
+    "-L", `${localPort}:127.0.0.1:${remotePort}`,
+    "-o", "BatchMode=yes",
+    "-o", "StrictHostKeyChecking=no",
+    "-o", "ConnectTimeout=10",
+    "-o", "ServerAliveInterval=30",
+    "-o", "ServerAliveCountMax=3",
+    "-o", "ExitOnForwardFailure=yes",
+    ...(fs.existsSync(SSH_KEY_PATH) ? ["-i", SSH_KEY_PATH] : []),
+    ...portFlag,
+    `${user}@${sshHost}`,
+  ];
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn("ssh", sshArgs, { stdio: ["ignore", "pipe", "pipe"] });
+    let settled = false;
+    let stderrBuf = "";
+
+    proc.stderr.on("data", (chunk) => {
+      stderrBuf += chunk.toString();
+    });
+
+    proc.on("error", (err) => {
+      if (!settled) {
+        settled = true;
+        reject(new Error(`SSH tunnel spawn failed: ${err.message}`));
+      }
+    });
+
+    proc.on("exit", (code) => {
+      if (!settled) {
+        settled = true;
+        reject(new Error(`SSH tunnel exited (code ${code}): ${stderrBuf.slice(-500)}`));
+      }
+    });
+
+    // Wait for the tunnel to be ready by probing the local port
+    const checkReady = (attempts) => {
+      if (settled) return;
+      const sock = net.createConnection({ host: "127.0.0.1", port: localPort }, () => {
+        sock.destroy();
+        if (!settled) {
+          settled = true;
+          log(`SSH tunnel established: localhost:${localPort} → ${sshHost}:${remotePort}`);
+          resolve({
+            localPort,
+            close: () => {
+              try { proc.kill(); } catch {}
+            },
+          });
+        }
+      });
+      sock.on("error", () => {
+        sock.destroy();
+        if (settled) return;
+        if (attempts <= 0) {
+          settled = true;
+          try { proc.kill(); } catch {}
+          reject(new Error(`SSH tunnel port not ready after retries: ${stderrBuf.slice(-500)}`));
+          return;
+        }
+        setTimeout(() => checkReady(attempts - 1), 200);
+      });
+    };
+
+    // Start probing after a brief delay for SSH to establish
+    setTimeout(() => checkReady(25), 300); // up to ~5.3s total
+  });
+};
+
 function createGatewayProxy(options) {
   const {
     loadUpstreamSettings,
@@ -69,12 +181,19 @@ function createGatewayProxy(options) {
 
   const wss = new WebSocketServer({ noServer: true });
 
-  wss.on("connection", (browserWs) => {
+  wss.on("connection", (browserWs, req) => {
     let upstreamWs = null;
     let upstreamReady = false;
     let connectRequestId = null;
     let connectResponseSent = false;
     let closed = false;
+    let sshTunnel = null;
+
+    // Per-connection upstream target from query param (multi-tenant support)
+    const perConnectionTarget = extractQueryParam(req.url, "target");
+    const sshHost = extractQueryParam(req.url, "sshHost");
+    const sshUser = extractQueryParam(req.url, "sshUser") || "root";
+    const sshPort = parseInt(extractQueryParam(req.url, "sshPort") || "22", 10) || 22;
 
     const closeBoth = (code, reason) => {
       if (closed) return;
@@ -85,6 +204,10 @@ function createGatewayProxy(options) {
       try {
         upstreamWs?.close(code, reason);
       } catch {}
+      if (sshTunnel) {
+        sshTunnel.close();
+        sshTunnel = null;
+      }
     };
 
     const sendToBrowser = (frame) => {
@@ -121,14 +244,22 @@ function createGatewayProxy(options) {
 
         let upstreamUrl = "";
         let upstreamToken = "";
-        try {
-          const settings = await loadUpstreamSettings();
-          upstreamUrl = typeof settings?.url === "string" ? settings.url.trim() : "";
-          upstreamToken = typeof settings?.token === "string" ? settings.token.trim() : "";
-        } catch (err) {
-          logError("Failed to load upstream gateway settings.", err);
-          sendConnectError("studio.settings_load_failed", "Failed to load Studio gateway settings.");
-          return;
+
+        if (perConnectionTarget) {
+          // Multi-tenant: browser specifies upstream URL, token comes in connect frame
+          upstreamUrl = perConnectionTarget;
+          upstreamToken = ""; // Token provided by browser in connect params
+        } else {
+          // Legacy: load from server filesystem
+          try {
+            const settings = await loadUpstreamSettings();
+            upstreamUrl = typeof settings?.url === "string" ? settings.url.trim() : "";
+            upstreamToken = typeof settings?.token === "string" ? settings.token.trim() : "";
+          } catch (err) {
+            logError("Failed to load upstream gateway settings.", err);
+            sendConnectError("studio.settings_load_failed", "Failed to load Studio gateway settings.");
+            return;
+          }
         }
 
         if (!upstreamUrl) {
@@ -138,7 +269,8 @@ function createGatewayProxy(options) {
           );
           return;
         }
-        if (!upstreamToken) {
+        // Only require server-side token when not using per-connection target
+        if (!perConnectionTarget && !upstreamToken) {
           sendConnectError(
             "studio.gateway_token_missing",
             "Upstream gateway token is not configured on the Studio host."
@@ -146,9 +278,39 @@ function createGatewayProxy(options) {
           return;
         }
 
+        // If SSH host is provided, tunnel the WebSocket through SSH
+        let effectiveUrl = upstreamUrl;
+        if (sshHost && perConnectionTarget) {
+          try {
+            const targetUrl = new URL(upstreamUrl);
+            const remotePort = parseInt(targetUrl.port, 10);
+            if (!remotePort) {
+              sendConnectError("studio.gateway_url_invalid", "Cannot determine remote port from upstream URL.");
+              return;
+            }
+            sshTunnel = await createSshTunnel({
+              sshHost,
+              sshUser,
+              sshPort,
+              remotePort,
+              log,
+              logError,
+            });
+            // Rewrite URL to point at local tunnel
+            effectiveUrl = `ws://127.0.0.1:${sshTunnel.localPort}`;
+          } catch (err) {
+            logError("SSH tunnel failed.", err);
+            sendConnectError(
+              "studio.upstream_error",
+              `SSH tunnel to ${sshHost} failed: ${err.message}`
+            );
+            return;
+          }
+        }
+
         let upstreamOrigin = "";
         try {
-          upstreamOrigin = resolveOriginForUpstream(upstreamUrl);
+          upstreamOrigin = resolveOriginForUpstream(effectiveUrl);
         } catch {
           sendConnectError(
             "studio.gateway_url_invalid",
@@ -157,7 +319,7 @@ function createGatewayProxy(options) {
           return;
         }
 
-        upstreamWs = new WebSocket(upstreamUrl, { origin: upstreamOrigin });
+        upstreamWs = new WebSocket(effectiveUrl, { origin: upstreamOrigin });
 
         upstreamWs.on("open", () => {
           upstreamReady = true;

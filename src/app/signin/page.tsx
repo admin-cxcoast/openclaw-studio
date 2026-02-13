@@ -5,7 +5,6 @@ import { useState } from "react";
 
 export default function SignInPage() {
   const { signIn } = useAuthActions();
-  const [flow, setFlow] = useState<"signIn" | "signUp">("signIn");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -16,7 +15,7 @@ export default function SignInPage() {
           OpenClaw Studio
         </h1>
         <p className="mb-6 text-center font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-          {flow === "signIn" ? "Sign in to continue" : "Create your account"}
+          Sign in to continue
         </p>
 
         <form
@@ -27,20 +26,16 @@ export default function SignInPage() {
             const formData = new FormData(e.currentTarget);
             void signIn("password", formData)
               .then(() => {
-                // Middleware handles redirect to /admin
+                // Middleware handles redirect
               })
               .catch(() => {
-                setError(
-                  flow === "signIn"
-                    ? "Invalid email or password."
-                    : "Could not create account. Email may already be registered.",
-                );
+                setError("Invalid email or password.");
               })
               .finally(() => setLoading(false));
           }}
           className="flex flex-col gap-4"
         >
-          <input name="flow" type="hidden" value={flow} />
+          <input name="flow" type="hidden" value="signIn" />
 
           <div className="flex flex-col gap-1.5">
             <label
@@ -88,28 +83,9 @@ export default function SignInPage() {
             disabled={loading}
             className="rounded-md bg-primary px-4 py-2 font-mono text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
           >
-            {loading
-              ? "..."
-              : flow === "signIn"
-                ? "Sign In"
-                : "Create Account"}
+            {loading ? "..." : "Sign In"}
           </button>
         </form>
-
-        <div className="mt-4 text-center">
-          <button
-            type="button"
-            onClick={() => {
-              setFlow(flow === "signIn" ? "signUp" : "signIn");
-              setError(null);
-            }}
-            className="font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {flow === "signIn"
-              ? "Need an account? Sign up"
-              : "Already have an account? Sign in"}
-          </button>
-        </div>
       </div>
     </main>
   );

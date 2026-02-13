@@ -72,7 +72,7 @@ export default defineSchema({
     .index("by_orgId_userId", ["orgId", "userId"]),
 
   // ──────────────────────────────────────────────
-  // VPS instances
+  // VPS instances (physical servers)
   // ──────────────────────────────────────────────
   vpsInstances: defineTable({
     hostingerId: v.optional(v.string()),
@@ -80,24 +80,54 @@ export default defineSchema({
     ipAddress: v.string(),
     region: v.optional(v.string()),
     plan: v.optional(v.string()),
+    maxInstances: v.optional(v.number()),
     status: v.union(
       v.literal("provisioning"),
       v.literal("running"),
       v.literal("stopped"),
       v.literal("error"),
-      v.literal("unassigned"),
+      v.literal("unassigned"), // deprecated — kept for migration
     ),
-    orgId: v.optional(v.id("organizations")),
     sshUser: v.optional(v.string()),
     sshPort: v.optional(v.number()),
     tags: v.optional(v.array(v.string())),
-    gatewayPort: v.optional(v.number()),
     lastHealthCheck: v.optional(v.number()),
     updatedAt: v.number(),
+    // ── Deprecated fields (kept for migration, will be removed) ──
+    orgId: v.optional(v.id("organizations")),
+    gatewayPort: v.optional(v.number()),
+    gatewayUrl: v.optional(v.string()),
+    gatewayToken: v.optional(v.string()),
   })
     .index("by_hostingerId", ["hostingerId"])
     .index("by_orgId", ["orgId"])
     .index("by_status", ["status"]),
+
+  // ──────────────────────────────────────────────
+  // Gateway instances (OpenClaw instances on VPS — junction table)
+  // One VPS can host many instances, one org can use many instances
+  // ──────────────────────────────────────────────
+  gatewayInstances: defineTable({
+    vpsId: v.id("vpsInstances"),
+    orgId: v.id("organizations"),
+    name: v.string(),
+    port: v.number(),
+    token: v.optional(v.string()),
+    url: v.optional(v.string()),
+    stateDir: v.optional(v.string()),
+    status: v.union(
+      v.literal("running"),
+      v.literal("stopped"),
+      v.literal("error"),
+      v.literal("unknown"),
+    ),
+    agentCount: v.optional(v.number()),
+    lastScanAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_vpsId", ["vpsId"])
+    .index("by_orgId", ["orgId"])
+    .index("by_vpsId_orgId", ["vpsId", "orgId"]),
 
   // ──────────────────────────────────────────────
   // AI providers (system-wide definitions)
