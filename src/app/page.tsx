@@ -14,6 +14,7 @@ import { FleetSidebar } from "@/features/agents/components/FleetSidebar";
 import { HeaderBar } from "@/features/agents/components/HeaderBar";
 import { ConnectionPanel } from "@/features/agents/components/ConnectionPanel";
 import { GatewayConnectScreen } from "@/features/agents/components/GatewayConnectScreen";
+import { StudioSkeleton } from "@/features/agents/components/StudioSkeleton";
 import { EmptyStatePanel } from "@/features/agents/components/EmptyStatePanel";
 import {
   extractText,
@@ -195,9 +196,15 @@ const resolveNextNewAgentName = (agents: AgentState[]) => {
 const AgentStudioPage = ({
   gatewayOverride,
   userContext,
+  gatewayTabs,
+  activeGatewayIdx,
+  onGatewaySelect,
 }: {
   gatewayOverride?: GatewayOverride | null;
   userContext?: { name: string; orgName: string; onSignOut: () => void } | null;
+  gatewayTabs?: Array<{ instanceId: string; primaryAgentName: string | null; port: number; status: string }>;
+  activeGatewayIdx?: number;
+  onGatewaySelect?: (idx: number) => void;
 }) => {
   const [settingsCoordinator] = useState(() => createStudioSettingsCoordinator());
   const {
@@ -1797,87 +1804,47 @@ const AgentStudioPage = ({
   }, [gatewayError]);
 
   if (!agentsLoadedOnce && !didAttemptGatewayConnect) {
-    return (
-      <div className="relative h-full w-full overflow-hidden bg-background">
-        <div className="flex h-full items-center justify-center px-6">
-          <div className="glass-panel w-full max-w-md px-6 py-6 text-center">
-            <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              OpenClaw Studio
-            </div>
-            <div className="mt-3 text-sm text-muted-foreground">
-              Booting Studio…
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <StudioSkeleton statusText="Booting Studio" />;
   }
 
   if (!agentsLoadedOnce && status !== "connected") {
-    // Multi-tenant: simplified connecting screen (no manual URL/token form)
+    // Multi-tenant: skeleton while connecting, error overlay if failed
     if (gatewayOverride) {
-      return (
-        <div className="relative h-full w-full overflow-hidden bg-background">
-          <div className="relative z-10 flex h-full flex-col gap-4 px-3 py-3 sm:px-4 sm:py-4 md:px-6 md:py-6">
-            <div className="w-full">
-              <HeaderBar
-                status={status}
-                onConnectionSettings={() => {}}
-                onBrainFiles={handleBrainToggle}
-                brainFilesOpen={brainPanelOpen}
-                brainDisabled
-                showConnectionSettings={false}
-                userContext={userContext}
-              />
-            </div>
-            <div className="mx-auto flex w-full max-w-md flex-1 items-center justify-center">
-              <div className="glass-panel w-full px-6 py-6 text-center">
-                {status === "connecting" ? (
-                  <>
-                    <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                      Connecting to gateway
-                    </div>
-                    <div className="mt-2 text-sm text-muted-foreground">
-                      {userContext?.orgName ?? "Your organization"}
-                    </div>
-                  </>
-                ) : gatewayError ? (
-                  <>
-                    <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-destructive">
-                      Connection failed
-                    </div>
-                    <div className="mt-2 text-sm text-destructive">
-                      {gatewayError.message}
-                    </div>
-                    {gatewayError.guidance ? (
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {gatewayError.guidance}
-                      </div>
-                    ) : null}
-                    {retryState ? (
-                      <div className="mt-3 text-xs text-muted-foreground">
-                        Retrying… ({retryState.attempt}/{retryState.max})
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        className="mt-4 h-10 rounded-md bg-primary px-6 text-xs font-semibold uppercase tracking-[0.1em] text-primary-foreground transition hover:brightness-95"
-                        onClick={() => void connect()}
-                      >
-                        Retry
-                      </button>
-                    )}
-                  </>
-                ) : (
-                  <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                    Connecting…
+      if (gatewayError) {
+        return (
+          <div className="relative h-full w-full overflow-hidden bg-background">
+            <div className="flex h-full items-center justify-center px-6">
+              <div className="glass-panel w-full max-w-md px-6 py-6 text-center">
+                <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-destructive">
+                  Connection failed
+                </div>
+                <div className="mt-2 text-sm text-destructive">
+                  {gatewayError.message}
+                </div>
+                {gatewayError.guidance ? (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {gatewayError.guidance}
                   </div>
+                ) : null}
+                {retryState ? (
+                  <div className="mt-3 text-xs text-muted-foreground">
+                    Retrying… ({retryState.attempt}/{retryState.max})
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="mt-4 h-10 rounded-md bg-primary px-6 text-xs font-semibold uppercase tracking-[0.1em] text-primary-foreground transition hover:brightness-95"
+                    onClick={() => void connect()}
+                  >
+                    Retry
+                  </button>
                 )}
               </div>
             </div>
           </div>
-        </div>
-      );
+        );
+      }
+      return <StudioSkeleton statusText="Connecting" />;
     }
 
     // Legacy: full manual connection screen
@@ -1938,7 +1905,7 @@ const AgentStudioPage = ({
           </div>
         </div>
       ) : null}
-      <div className="relative z-10 flex h-screen flex-col gap-3 px-3 py-3 sm:px-4 sm:py-4 md:px-5 md:py-5">
+      <div className="relative z-10 flex h-full flex-col gap-3 px-3 py-3 sm:px-4 sm:py-4 md:px-5 md:py-5">
         <div className="w-full">
           <HeaderBar
             status={status}
@@ -1948,6 +1915,9 @@ const AgentStudioPage = ({
             brainDisabled={!hasAnyAgents}
             showConnectionSettings={!gatewayOverride}
             userContext={userContext}
+            gatewayTabs={gatewayTabs}
+            activeGatewayIdx={activeGatewayIdx}
+            onGatewaySelect={onGatewaySelect}
           />
         </div>
 
@@ -2252,40 +2222,26 @@ const AgentStudioPage = ({
 
 function AuthGate() {
   const router = useRouter();
-  const currentUser = useConvexQuery(convexApi.users.currentUser);
-  const myOrgs = useConvexQuery(convexApi.users.getMyOrgs);
+  const sessionCtx = useConvexQuery(convexApi.sessionContext.getSessionContext);
   const { signOut } = useAuthActions();
   const [selectedGatewayIdx, setSelectedGatewayIdx] = useState(0);
 
-  // Resolve first org for gateway lookup (undefined while loading to skip)
-  const firstOrgId = myOrgs?.orgs?.[0]?.orgId;
-  const myGateways = useConvexQuery(
-    convexApi.gatewayInstances.getMyGateways,
-    firstOrgId ? { orgId: firstOrgId } : "skip"
-  );
-
-  // Still loading
-  if (currentUser === undefined || myOrgs === undefined) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <span className="font-mono text-xs text-muted-foreground">
-          Loading...
-        </span>
-      </div>
-    );
+  // Single loading gate — show skeleton while Convex resolves
+  if (sessionCtx === undefined) {
+    return <StudioSkeleton />;
   }
 
   // Not authenticated (middleware should catch this, but safety)
-  if (currentUser === null || myOrgs === null) {
+  if (sessionCtx === null) {
     router.replace("/signin");
     return null;
   }
 
   // SuperAdmin → redirect to /admin dashboard
-  if (currentUser.profile?.role === "superAdmin") {
+  if (sessionCtx.profile?.role === "superAdmin") {
     router.replace("/admin");
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-full items-center justify-center bg-background">
         <span className="font-mono text-xs text-muted-foreground">
           Redirecting to admin...
         </span>
@@ -2294,9 +2250,9 @@ function AuthGate() {
   }
 
   // No profile (account pending setup by admin)
-  if (!currentUser.profile) {
+  if (!sessionCtx.profile) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background p-4">
+      <div className="flex h-full items-center justify-center bg-background p-4">
         <div className="glass-panel w-full max-w-sm rounded-xl p-6 text-center">
           <h1 className="console-title mb-2 text-2xl text-foreground">
             Account Pending
@@ -2311,9 +2267,9 @@ function AuthGate() {
   }
 
   // No org membership
-  if (myOrgs.orgs.length === 0) {
+  if (sessionCtx.orgs.length === 0) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background p-4">
+      <div className="flex h-full items-center justify-center bg-background p-4">
         <div className="glass-panel w-full max-w-sm rounded-xl p-6 text-center">
           <h1 className="console-title mb-2 text-2xl text-foreground">
             No Organization
@@ -2327,21 +2283,11 @@ function AuthGate() {
     );
   }
 
-  // Wait for gateway query to resolve
-  if (myGateways === undefined) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <span className="font-mono text-xs text-muted-foreground">
-          Resolving gateway...
-        </span>
-      </div>
-    );
-  }
-
   // No gateway instances configured for this org
+  const myGateways = sessionCtx.gateways;
   if (!myGateways?.gateways?.length || !myGateways.gateways.some((g) => g.gatewayUrl)) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background p-4">
+      <div className="flex h-full items-center justify-center bg-background p-4">
         <div className="glass-panel w-full max-w-sm rounded-xl p-6 text-center">
           <h1 className="console-title mb-2 text-2xl text-foreground">
             No Gateway
@@ -2357,11 +2303,9 @@ function AuthGate() {
   }
 
   const gateways = myGateways.gateways;
-  // Clamp index if gateways changed
   const safeIdx = selectedGatewayIdx >= gateways.length ? 0 : selectedGatewayIdx;
   const activeGateway = gateways[safeIdx];
 
-  // Build gateway override from Convex data
   const sshHost = activeGateway.vpsIp || activeGateway.vpsHostname;
   const gatewayOverride: GatewayOverride = {
     gatewayUrl: resolveStudioProxyGatewayUrl(activeGateway.gatewayUrl, sshHost ? {
@@ -2378,45 +2322,31 @@ function AuthGate() {
   });
 
   const userContext = {
-    name: myOrgs.name ?? currentUser.user?.email ?? "User",
-    orgName: myGateways.org?.name ?? myOrgs.orgs[0]?.name ?? "Org",
+    name: sessionCtx.name ?? (sessionCtx.user as Record<string, unknown>)?.email as string ?? "User",
+    orgName: myGateways.org?.name ?? sessionCtx.orgs[0]?.name ?? "Org",
     onSignOut: handleSignOut,
   };
 
-  // Normal user with org + gateway → load studio
-  // key on AgentStoreProvider forces full remount (reconnect) on gateway switch
+  const gatewayTabs = gateways.length > 1
+    ? gateways.map((gw) => ({
+        instanceId: gw.instanceId,
+        primaryAgentName: gw.primaryAgentName,
+        port: gw.port,
+        status: gw.status,
+      }))
+    : undefined;
+
   return (
-    <div className="flex h-screen flex-col bg-background">
-      {gateways.length > 1 && (
-        <div className="flex items-center gap-2 border-b border-border/40 bg-background/80 px-3 py-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-            Gateway
-          </span>
-          <div className="flex gap-1">
-            {gateways.map((gw, idx) => (
-              <button
-                key={gw.instanceId}
-                onClick={() => setSelectedGatewayIdx(idx)}
-                className={`rounded px-2 py-0.5 font-mono text-[11px] transition-colors ${
-                  idx === safeIdx
-                    ? "bg-primary/20 text-primary"
-                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                }`}
-              >
-                {gw.name || `Port ${gw.port}`}
-                {gw.status === "running" && (
-                  <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      <div className="flex-1 overflow-hidden">
-        <AgentStoreProvider key={activeGateway.instanceId}>
-          <AgentStudioPage gatewayOverride={gatewayOverride} userContext={userContext} />
-        </AgentStoreProvider>
-      </div>
+    <div className="h-full bg-background">
+      <AgentStoreProvider key={activeGateway.instanceId}>
+        <AgentStudioPage
+          gatewayOverride={gatewayOverride}
+          userContext={userContext}
+          gatewayTabs={gatewayTabs}
+          activeGatewayIdx={safeIdx}
+          onGatewaySelect={setSelectedGatewayIdx}
+        />
+      </AgentStoreProvider>
     </div>
   );
 }

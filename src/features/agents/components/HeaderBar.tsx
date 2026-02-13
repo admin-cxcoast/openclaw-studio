@@ -3,6 +3,13 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import type { GatewayStatus } from "@/lib/gateway/GatewayClient";
 import { Brain, LogOut, Plug } from "lucide-react";
 
+type GatewayTab = {
+  instanceId: string;
+  primaryAgentName: string | null;
+  port: number;
+  status: string;
+};
+
 type HeaderBarProps = {
   status: GatewayStatus;
   onConnectionSettings: () => void;
@@ -16,6 +23,10 @@ type HeaderBarProps = {
     orgName: string;
     onSignOut: () => void;
   } | null;
+  /** Gateway tabs for multi-gateway orgs */
+  gatewayTabs?: GatewayTab[];
+  activeGatewayIdx?: number;
+  onGatewaySelect?: (idx: number) => void;
 };
 
 export const HeaderBar = ({
@@ -26,6 +37,9 @@ export const HeaderBar = ({
   brainDisabled = false,
   showConnectionSettings = true,
   userContext,
+  gatewayTabs,
+  activeGatewayIdx = 0,
+  onGatewaySelect,
 }: HeaderBarProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -61,6 +75,27 @@ export const HeaderBar = ({
               <span className="text-border">|</span>
               <span>{userContext.name}</span>
             </span>
+          ) : null}
+          {gatewayTabs && gatewayTabs.length > 1 && onGatewaySelect ? (
+            <div className="flex items-center gap-1 border-l border-border/40 pl-3">
+              {gatewayTabs.map((gw, idx) => (
+                <button
+                  key={gw.instanceId}
+                  type="button"
+                  onClick={() => onGatewaySelect(idx)}
+                  className={`rounded px-2 py-0.5 font-mono text-[11px] transition-colors ${
+                    idx === activeGatewayIdx
+                      ? "bg-primary/20 text-primary"
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                  }`}
+                >
+                  {gw.primaryAgentName || `Port ${gw.port}`}
+                  {gw.status === "running" && (
+                    <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+                  )}
+                </button>
+              ))}
+            </div>
           ) : null}
         </div>
 

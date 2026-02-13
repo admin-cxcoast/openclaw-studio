@@ -36,7 +36,7 @@ export default function ControlPlanePage() {
   }, [loadSnapshot]);
 
   return (
-    <main className="mx-auto flex h-screen w-full max-w-[1600px] flex-col gap-4 p-4">
+    <main className="mx-auto flex h-full w-full max-w-[1600px] flex-col gap-4 p-4">
       <header className="glass-panel flex items-center justify-between rounded-xl px-4 py-3">
         <div>
           <h1 className="font-display text-3xl tracking-wide text-foreground">Task Control Plane</h1>

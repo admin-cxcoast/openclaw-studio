@@ -414,6 +414,7 @@ type ScanResult = {
   token?: string | null;
   stateDir?: string | null;
   agentCount?: number;
+  agentNames?: string[];
   source?: string;
   containerId?: string;
   containerName?: string;
@@ -460,6 +461,10 @@ function ScanResultsPanel({
     setImporting((prev) => new Set(prev).add(result.port));
     setError("");
     try {
+      const primary = result.agentNames?.find((n) => n !== "main");
+      const primaryAgentName = primary
+        ? primary.charAt(0).toUpperCase() + primary.slice(1)
+        : undefined;
       await createInstance({
         vpsId,
         orgId: selectedOrg as Id<"organizations">,
@@ -469,6 +474,7 @@ function ScanResultsPanel({
         stateDir: result.stateDir ?? undefined,
         status: "running",
         agentCount: result.agentCount ?? undefined,
+        primaryAgentName,
       });
       setImported((prev) => new Set(prev).add(result.port));
     } catch (err: any) {
@@ -488,12 +494,17 @@ function ScanResultsPanel({
     setImporting((prev) => new Set(prev).add(result.port));
     setError("");
     try {
+      const primary = result.agentNames?.find((n) => n !== "main");
+      const primaryAgentName = primary
+        ? primary.charAt(0).toUpperCase() + primary.slice(1)
+        : undefined;
       await updateInstance({
         id: instId,
         status: "running",
         agentCount: result.agentCount ?? 0,
         token: result.token ?? undefined,
         stateDir: result.stateDir ?? undefined,
+        primaryAgentName,
       });
       setUpdated((prev) => new Set(prev).add(result.port));
     } catch (err: any) {
@@ -624,8 +635,8 @@ function ScanResultsPanel({
                 <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
                   {r.token ? "present" : "—"}
                 </td>
-                <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
-                  {r.agentCount ?? 0}
+                <td className="px-3 py-2 font-mono text-xs text-muted-foreground" title={r.agentNames?.join(", ") ?? ""}>
+                  {r.agentNames?.length ? r.agentNames.filter((n) => n !== "main").join(", ") || "main" : r.agentCount ?? 0}
                 </td>
                 <td className="max-w-[250px] truncate px-3 py-2 font-mono text-[10px] text-muted-foreground">
                   {r.containerName ? (

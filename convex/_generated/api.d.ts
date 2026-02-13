@@ -20,6 +20,7 @@ import type * as organizations from "../organizations.js";
 import type * as providerCredentials from "../providerCredentials.js";
 import type * as providers from "../providers.js";
 import type * as seed from "../seed.js";
+import type * as sessionContext from "../sessionContext.js";
 import type * as systemSettings from "../systemSettings.js";
 import type * as users from "../users.js";
 import type * as vpsInstances from "../vpsInstances.js";
@@ -43,6 +44,7 @@ declare const fullApi: ApiFromModules<{
   providerCredentials: typeof providerCredentials;
   providers: typeof providers;
   seed: typeof seed;
+  sessionContext: typeof sessionContext;
   systemSettings: typeof systemSettings;
   users: typeof users;
   vpsInstances: typeof vpsInstances;

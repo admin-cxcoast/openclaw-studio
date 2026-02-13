@@ -58,12 +58,12 @@ def read_config(base_dir):
     except Exception:
         return None
 
-def count_agents(base_dir):
-    """Count agent directories on host."""
+def list_agents(base_dir):
+    """List agent directory names on host."""
     agents_dir = base_dir / "agents"
     if not agents_dir.is_dir():
-        return 0
-    return len([d for d in agents_dir.iterdir() if d.is_dir()])
+        return []
+    return [d.name for d in agents_dir.iterdir() if d.is_dir()]
 
 def read_config_from_docker(container_id):
     """Read openclaw.json from inside a Docker container."""
@@ -88,8 +88,8 @@ def read_config_from_docker(container_id):
                 continue
     return None
 
-def count_agents_docker(container_id):
-    """Count agent directories inside a Docker container."""
+def list_agents_docker(container_id):
+    """List agent directory names inside a Docker container."""
     for agents_dir in [
         "/root/.openclaw/agents",
         "/home/openclaw/.openclaw/agents",
@@ -98,8 +98,8 @@ def count_agents_docker(container_id):
     ]:
         out = run(["docker", "exec", container_id, "ls", "-1", agents_dir])
         if out:
-            return len([d for d in out.splitlines() if d.strip()])
-    return 0
+            return [d.strip() for d in out.splitlines() if d.strip()]
+    return []
 
 def get_docker_port_mappings(container_id):
     """Get host:container port mappings for a container."""
@@ -121,11 +121,13 @@ default_base = home / ".openclaw"
 if default_base.is_dir():
     cfg = read_config(default_base)
     if cfg and cfg.get("port"):
+        agents = list_agents(default_base)
         results.append({
             "stateDir": str(default_base),
             "port": cfg["port"],
             "token": cfg.get("token"),
-            "agentCount": count_agents(default_base),
+            "agentCount": len(agents),
+            "agentNames": agents,
             "source": "host",
         })
 
@@ -137,11 +139,13 @@ if instances_root.is_dir():
             continue
         cfg = read_config(inst_dir)
         if cfg and cfg.get("port"):
+            agents = list_agents(inst_dir)
             results.append({
                 "stateDir": str(inst_dir),
                 "port": cfg["port"],
                 "token": cfg.get("token"),
-                "agentCount": count_agents(inst_dir),
+                "agentCount": len(agents),
+                "agentNames": agents,
                 "source": "host-multi",
             })
 
@@ -214,13 +218,14 @@ if docker_available:
         if not effective_port:
             continue
 
-        agent_count = count_agents_docker(cid)
+        agents = list_agents_docker(cid)
 
         results.append({
             "stateDir": f"docker:{name}",
             "port": effective_port,
             "token": token,
-            "agentCount": agent_count,
+            "agentCount": len(agents),
+            "agentNames": agents,
             "source": "docker",
             "containerId": cid[:12],
             "containerName": name,

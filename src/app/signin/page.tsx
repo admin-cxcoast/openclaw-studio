@@ -9,7 +9,7 @@ export default function SignInPage() {
   const [loading, setLoading] = useState(false);
 
   return (
-    <main className="flex h-screen items-center justify-center p-4">
+    <main className="flex h-full items-center justify-center p-4">
       <div className="glass-panel w-full max-w-sm rounded-xl p-6">
         <h1 className="console-title mb-1 text-center text-3xl text-foreground">
           OpenClaw Studio

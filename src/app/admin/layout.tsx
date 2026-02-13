@@ -23,7 +23,7 @@ export default function AdminLayout({
 
   if (current === undefined || current === null) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <span className="font-mono text-xs text-muted-foreground">
           Loading...
         </span>
@@ -34,7 +34,7 @@ export default function AdminLayout({
   if (!current.profile || current.profile.role !== "superAdmin") {
     router.replace("/");
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <span className="font-mono text-xs text-muted-foreground">
           Redirecting...
         </span>
@@ -43,7 +43,7 @@ export default function AdminLayout({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-full overflow-hidden">
       <AdminSidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <AdminHeader />

@@ -86,6 +86,7 @@ export const create = mutation({
       ),
     ),
     agentCount: v.optional(v.number()),
+    primaryAgentName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireSuperAdmin(ctx);
@@ -113,11 +114,12 @@ export const create = mutation({
       );
     }
 
-    const { status: statusArg, agentCount, ...rest } = args;
+    const { status: statusArg, agentCount, primaryAgentName, ...rest } = args;
     return ctx.db.insert("gatewayInstances", {
       ...rest,
       status: statusArg ?? "unknown",
       agentCount,
+      primaryAgentName,
       updatedAt: Date.now(),
     });
   },
@@ -141,6 +143,7 @@ export const update = mutation({
     ),
     orgId: v.optional(v.id("organizations")),
     agentCount: v.optional(v.number()),
+    primaryAgentName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireSuperAdmin(ctx);
@@ -151,6 +154,7 @@ export const update = mutation({
     const updates: Record<string, unknown> = { updatedAt: Date.now() };
     if (fields.name !== undefined) updates.name = fields.name;
     if (fields.agentCount !== undefined) updates.agentCount = fields.agentCount;
+    if (fields.primaryAgentName !== undefined) updates.primaryAgentName = fields.primaryAgentName;
     if (fields.port !== undefined) {
       // Check port conflict on same VPS
       const siblings = await ctx.db
@@ -211,6 +215,7 @@ export const getMyGateways = query({
       result.push({
         instanceId: inst._id,
         name: inst.name,
+        primaryAgentName: inst.primaryAgentName ?? null,
         gatewayUrl,
         token: inst.token ?? null,
         status: inst.status,

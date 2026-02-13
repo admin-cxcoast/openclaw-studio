@@ -45,7 +45,19 @@ export default function RootLayout({
         </head>
         <body className={`${display.variable} ${sans.variable} ${mono.variable} antialiased`}>
           <ConvexClientProvider>
-            {children}
+            <div className="flex h-screen flex-col">
+              <div className="flex-1 overflow-auto">{children}</div>
+              <footer className="shrink-0 border-t border-border/30 bg-background/80 px-4 py-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground/50">
+                    OpenClaw Studio
+                  </span>
+                  <span className="font-mono text-[10px] text-muted-foreground/40">
+                    &copy; {new Date().getFullYear()} CXCoast Technology Solutions
+                  </span>
+                </div>
+              </footer>
+            </div>
           </ConvexClientProvider>
         </body>
       </html>

@@ -122,6 +122,7 @@ export default defineSchema({
       v.literal("unknown"),
     ),
     agentCount: v.optional(v.number()),
+    primaryAgentName: v.optional(v.string()),
     lastScanAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
