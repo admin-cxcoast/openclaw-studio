@@ -11,11 +11,14 @@ import {
   AgentSettingsPanel,
 } from "@/features/agents/components/AgentInspectPanels";
 import { FleetSidebar } from "@/features/agents/components/FleetSidebar";
+import { DeployInstanceModal } from "@/features/agents/components/DeployInstanceModal";
 import { HeaderBar } from "@/features/agents/components/HeaderBar";
 import { ConnectionPanel } from "@/features/agents/components/ConnectionPanel";
 import { GatewayConnectScreen } from "@/features/agents/components/GatewayConnectScreen";
 import { StudioSkeleton } from "@/features/agents/components/StudioSkeleton";
 import { EmptyStatePanel } from "@/features/agents/components/EmptyStatePanel";
+import { KnowledgePanel } from "@/features/knowledge/components/KnowledgePanel";
+import { DocumentsPanel } from "@/features/documents/components/DocumentsPanel";
 import {
   extractText,
   isHeartbeatPrompt,
@@ -112,7 +115,7 @@ type SessionsListResult = {
   sessions?: SessionsListEntry[];
 };
 
-type MobilePane = "fleet" | "chat" | "settings" | "brain";
+type MobilePane = "fleet" | "chat" | "settings" | "brain" | "knowledge" | "documents";
 type DeleteAgentBlockPhase = "queued" | "deleting" | "awaiting-restart";
 type DeleteAgentBlockState = {
   agentId: string;
@@ -199,12 +202,16 @@ const AgentStudioPage = ({
   gatewayTabs,
   activeGatewayIdx,
   onGatewaySelect,
+  orgId,
+  orgRole,
 }: {
   gatewayOverride?: GatewayOverride | null;
-  userContext?: { name: string; orgName: string; onSignOut: () => void } | null;
+  userContext?: { name: string; orgName: string; orgRole?: string; onSignOut: () => void } | null;
   gatewayTabs?: Array<{ instanceId: string; primaryAgentName: string | null; port: number; status: string }>;
   activeGatewayIdx?: number;
   onGatewaySelect?: (idx: number) => void;
+  orgId?: string;
+  orgRole?: "owner" | "admin" | "member" | "viewer";
 }) => {
   const [settingsCoordinator] = useState(() => createStudioSettingsCoordinator());
   const {
@@ -241,6 +248,7 @@ const AgentStudioPage = ({
   const [createAgentBusy, setCreateAgentBusy] = useState(false);
   const [stopBusyAgentId, setStopBusyAgentId] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<MobilePane>("chat");
+  const [sidebarTab, setSidebarTab] = useState<"chat" | "knowledge" | "documents">("chat");
   const [settingsAgentId, setSettingsAgentId] = useState<string | null>(null);
   const [settingsCronJobs, setSettingsCronJobs] = useState<CronJobSummary[]>([]);
   const [settingsCronLoading, setSettingsCronLoading] = useState(false);
@@ -254,6 +262,7 @@ const AgentStudioPage = ({
   const [heartbeatRunBusyId, setHeartbeatRunBusyId] = useState<string | null>(null);
   const [heartbeatDeleteBusyId, setHeartbeatDeleteBusyId] = useState<string | null>(null);
   const [brainPanelOpen, setBrainPanelOpen] = useState(false);
+  const [showDeployModal, setShowDeployModal] = useState(false);
   const [deleteAgentBlock, setDeleteAgentBlock] = useState<DeleteAgentBlockState | null>(null);
   const [createAgentBlock, setCreateAgentBlock] = useState<CreateAgentBlockState | null>(null);
   const [renameAgentBlock, setRenameAgentBlock] = useState<RenameAgentBlockState | null>(null);
@@ -1272,7 +1281,7 @@ const AgentStudioPage = ({
     [client, heartbeatDeleteBusyId, heartbeatRunBusyId, loadHeartbeatsForSettingsAgent]
   );
 
-  const handleCreateAgent = useCallback(async () => {
+  const handleCreateAgent = useCallback(async (providedName?: string) => {
     if (createAgentBusy) return;
     if (createAgentBlock) return;
     if (deleteAgentBlock) return;
@@ -1283,7 +1292,7 @@ const AgentStudioPage = ({
     }
     setCreateAgentBusy(true);
     try {
-      const name = resolveNextNewAgentName(stateRef.current.agents);
+      const name = providedName?.trim() || resolveNextNewAgentName(stateRef.current.agents);
       setCreateAgentBlock({
         agentId: null,
         agentName: name,
@@ -1956,7 +1965,7 @@ const AgentStudioPage = ({
 
         <div className="flex min-h-0 flex-1 flex-col gap-4 xl:flex-row">
           <div className="glass-panel bg-surface-1 p-2 xl:hidden" data-testid="mobile-pane-toggle">
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-6 gap-2">
               <button
                 type="button"
                 className={`rounded-md border px-2 py-2 font-mono text-[10px] font-semibold uppercase tracking-[0.13em] transition ${
@@ -1975,9 +1984,40 @@ const AgentStudioPage = ({
                     ? "border-border bg-surface-2 text-foreground"
                     : "border-border/80 bg-surface-1 text-muted-foreground hover:border-border hover:bg-surface-2"
                 }`}
-                onClick={() => setMobilePane("chat")}
+                onClick={() => {
+                  setSidebarTab("chat");
+                  setMobilePane("chat");
+                }}
               >
                 Chat
+              </button>
+              <button
+                type="button"
+                className={`rounded-md border px-2 py-2 font-mono text-[10px] font-semibold uppercase tracking-[0.13em] transition ${
+                  mobilePane === "knowledge"
+                    ? "border-border bg-surface-2 text-foreground"
+                    : "border-border/80 bg-surface-1 text-muted-foreground hover:border-border hover:bg-surface-2"
+                }`}
+                onClick={() => {
+                  setSidebarTab("knowledge");
+                  setMobilePane("knowledge");
+                }}
+              >
+                Know.
+              </button>
+              <button
+                type="button"
+                className={`rounded-md border px-2 py-2 font-mono text-[10px] font-semibold uppercase tracking-[0.13em] transition ${
+                  mobilePane === "documents"
+                    ? "border-border bg-surface-2 text-foreground"
+                    : "border-border/80 bg-surface-1 text-muted-foreground hover:border-border hover:bg-surface-2"
+                }`}
+                onClick={() => {
+                  setSidebarTab("documents");
+                  setMobilePane("documents");
+                }}
+              >
+                Docs
               </button>
               <button
                 type="button"
@@ -2017,23 +2057,38 @@ const AgentStudioPage = ({
               selectedAgentId={focusedAgent?.agentId ?? state.selectedAgentId}
               filter={focusFilter}
               onFilterChange={handleFocusFilterChange}
-              onCreateAgent={() => {
-                void handleCreateAgent();
+              onCreateAgent={(name) => {
+                void handleCreateAgent(name);
               }}
               createDisabled={status !== "connected" || createAgentBusy || state.loading}
               createBusy={createAgentBusy}
               onSelectAgent={(agentId) => {
                 flushPendingDraft(focusedAgent?.agentId ?? null);
                 dispatch({ type: "selectAgent", agentId });
+                setSidebarTab("chat");
                 setMobilePane("chat");
               }}
+              sidebarTab={sidebarTab}
+              onSidebarTabChange={(tab) => {
+                setSidebarTab(tab);
+                if (tab === "knowledge") setMobilePane("knowledge");
+                else if (tab === "documents") setMobilePane("documents");
+                else setMobilePane("chat");
+              }}
+              onDeployInstance={() => setShowDeployModal(true)}
+              deployDisabled={!orgId}
+              isAdmin={orgRole === "owner" || orgRole === "admin"}
             />
           </div>
           <div
-            className={`${mobilePane === "chat" ? "flex" : "hidden"} min-h-0 flex-1 overflow-hidden rounded-md border border-border/80 bg-surface-1 xl:flex`}
+            className={`${mobilePane === "chat" || mobilePane === "knowledge" || mobilePane === "documents" ? "flex" : "hidden"} min-h-0 flex-1 overflow-hidden rounded-md border border-border/80 bg-surface-1 xl:flex`}
             data-testid="focused-agent-panel"
           >
-            {focusedAgent ? (
+            {sidebarTab === "documents" && orgId ? (
+              <DocumentsPanel orgId={orgId} orgRole={orgRole ?? "member"} />
+            ) : sidebarTab === "knowledge" && orgId ? (
+              <KnowledgePanel orgId={orgId} orgRole={orgRole ?? "member"} />
+            ) : focusedAgent ? (
 	              <AgentChatPanel
 	                agent={focusedAgent}
 	                isSelected={false}
@@ -2210,9 +2265,61 @@ const AgentStudioPage = ({
           </div>
         </div>
       ) : null}
+      {showDeployModal && orgId && (
+        <DeployInstanceModal
+          orgId={orgId}
+          onClose={() => setShowDeployModal(false)}
+        />
+      )}
     </div>
   );
 };
+
+// ── No Gateway screen (extracted so hooks work in early-return) ──
+
+function NoGatewayScreen({
+  orgName,
+  isAdmin,
+  orgId,
+}: {
+  orgName: string | null;
+  isAdmin: boolean;
+  orgId: string;
+}) {
+  const [showDeploy, setShowDeploy] = useState(false);
+
+  return (
+    <div className="flex h-full items-center justify-center bg-background p-4">
+      <div className="glass-panel w-full max-w-sm rounded-xl p-6 text-center">
+        <h1 className="console-title mb-2 text-2xl text-foreground">
+          No Gateway
+        </h1>
+        <p className="font-mono text-xs text-muted-foreground">
+          No gateway is configured for your organization
+          {orgName ? ` (${orgName})` : ""}.
+          {isAdmin
+            ? " Deploy a new instance to get started."
+            : " Please contact your administrator."}
+        </p>
+        {isAdmin && (
+          <button
+            type="button"
+            className="mt-4 rounded-md border border-transparent bg-primary px-4 py-2 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-primary-foreground transition hover:brightness-105"
+            onClick={() => setShowDeploy(true)}
+          >
+            Deploy Instance
+          </button>
+        )}
+      </div>
+      {showDeploy && (
+        <DeployInstanceModal
+          orgId={orgId}
+          onClose={() => setShowDeploy(false)}
+        />
+      )}
+    </div>
+  );
+}
 
 // ── Auth-aware entry point ──────────────────────────────
 // Checks user role and routes accordingly:
@@ -2283,22 +2390,20 @@ function AuthGate() {
     );
   }
 
+  // DEBUG: log user name and org role
+  console.log("[AuthGate] user:", sessionCtx.name, "| profileRole:", sessionCtx.profile?.role, "| orgRole:", sessionCtx.orgs[0]?.orgRole, "| orgName:", sessionCtx.orgs[0]?.name);
+
   // No gateway instances configured for this org
   const myGateways = sessionCtx.gateways;
   if (!myGateways?.gateways?.length || !myGateways.gateways.some((g) => g.gatewayUrl)) {
+    const isAdmin = sessionCtx.orgs[0].orgRole === "owner" || sessionCtx.orgs[0].orgRole === "admin";
+    const theOrgId = sessionCtx.orgs[0].orgId as string;
     return (
-      <div className="flex h-full items-center justify-center bg-background p-4">
-        <div className="glass-panel w-full max-w-sm rounded-xl p-6 text-center">
-          <h1 className="console-title mb-2 text-2xl text-foreground">
-            No Gateway
-          </h1>
-          <p className="font-mono text-xs text-muted-foreground">
-            No gateway is configured for your organization
-            {myGateways?.org?.name ? ` (${myGateways.org.name})` : ""}.
-            Please contact your administrator.
-          </p>
-        </div>
-      </div>
+      <NoGatewayScreen
+        orgName={myGateways?.org?.name ?? null}
+        isAdmin={isAdmin}
+        orgId={theOrgId}
+      />
     );
   }
 
@@ -2324,6 +2429,7 @@ function AuthGate() {
   const userContext = {
     name: sessionCtx.name ?? (sessionCtx.user as Record<string, unknown>)?.email as string ?? "User",
     orgName: myGateways.org?.name ?? sessionCtx.orgs[0]?.name ?? "Org",
+    orgRole: sessionCtx.orgs[0]?.orgRole,
     onSignOut: handleSignOut,
   };
 
@@ -2345,6 +2451,8 @@ function AuthGate() {
           gatewayTabs={gatewayTabs}
           activeGatewayIdx={safeIdx}
           onGatewaySelect={setSelectedGatewayIdx}
+          orgId={sessionCtx.orgs[0].orgId as string}
+          orgRole={sessionCtx.orgs[0].orgRole}
         />
       </AgentStoreProvider>
     </div>

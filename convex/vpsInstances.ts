@@ -2,6 +2,13 @@ import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import { requireSuperAdmin } from "./lib/authorization";
 
+export const get = query({
+  args: { id: v.id("vpsInstances") },
+  handler: async (ctx, args) => {
+    return ctx.db.get(args.id);
+  },
+});
+
 export const list = query({
   args: {},
   handler: async (ctx) => {

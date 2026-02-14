@@ -44,6 +44,8 @@ export default defineSchema({
       v.object({
         maxAgents: v.optional(v.number()),
         maxVps: v.optional(v.number()),
+        maxInstances: v.optional(v.number()),
+        enabledSkillCategories: v.optional(v.array(v.string())),
         features: v.optional(v.array(v.string())),
       }),
     ),
@@ -124,6 +126,9 @@ export default defineSchema({
     agentCount: v.optional(v.number()),
     primaryAgentName: v.optional(v.string()),
     lastScanAt: v.optional(v.number()),
+    deploymentId: v.optional(v.id("deployments")),
+    configSnapshot: v.optional(v.string()),
+    skillCount: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_vpsId", ["vpsId"])
@@ -193,6 +198,202 @@ export default defineSchema({
     .index("by_providerId", ["providerId"])
     .index("by_modelId", ["modelId"])
     .index("by_providerId_modelId", ["providerId", "modelId"]),
+
+  // ──────────────────────────────────────────────
+  // Skills catalog (globally managed by super admin)
+  // ──────────────────────────────────────────────
+  skills: defineTable({
+    name: v.string(),
+    displayName: v.string(),
+    description: v.string(),
+    category: v.union(
+      v.literal("mcp"),
+      v.literal("prompt"),
+      v.literal("workflow"),
+    ),
+    sourceRepo: v.optional(v.string()),
+    content: v.string(),
+    entryPoint: v.optional(v.string()),
+    runtime: v.optional(
+      v.union(
+        v.literal("node"),
+        v.literal("python"),
+        v.literal("none"),
+      ),
+    ),
+    dependencies: v.optional(v.string()),
+    isEnabled: v.boolean(),
+    plans: v.array(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_name", ["name"])
+    .index("by_category", ["category"])
+    .index("by_isEnabled", ["isEnabled"]),
+
+  // ──────────────────────────────────────────────
+  // Instance-skill assignments (junction table)
+  // ──────────────────────────────────────────────
+  instanceSkills: defineTable({
+    instanceId: v.id("gatewayInstances"),
+    skillId: v.id("skills"),
+    deployedAt: v.number(),
+  })
+    .index("by_instanceId", ["instanceId"])
+    .index("by_skillId", ["skillId"])
+    .index("by_instanceId_skillId", ["instanceId", "skillId"]),
+
+  // ──────────────────────────────────────────────
+  // Knowledge base (org-scoped)
+  // ──────────────────────────────────────────────
+  knowledge: defineTable({
+    orgId: v.id("organizations"),
+    key: v.string(),
+    content: v.string(),
+    tags: v.array(v.string()),
+    source: v.union(v.literal("human"), v.literal("agent")),
+    sourceAgentId: v.optional(v.string()),
+    sourceInstanceId: v.optional(v.id("gatewayInstances")),
+    createdBy: v.optional(v.id("users")),
+    updatedAt: v.number(),
+  })
+    .index("by_orgId", ["orgId"])
+    .index("by_orgId_key", ["orgId", "key"])
+    .searchIndex("search_content", {
+      searchField: "content",
+      filterFields: ["orgId"],
+    }),
+
+  // ──────────────────────────────────────────────
+  // Knowledge proposals (agent-authored, awaiting approval)
+  // ──────────────────────────────────────────────
+  knowledgeProposals: defineTable({
+    orgId: v.id("organizations"),
+    instanceId: v.id("gatewayInstances"),
+    agentId: v.string(),
+    key: v.string(),
+    content: v.string(),
+    tags: v.array(v.string()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("rejected"),
+    ),
+    reviewedBy: v.optional(v.id("users")),
+    reviewedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_orgId_status", ["orgId", "status"])
+    .index("by_instanceId", ["instanceId"]),
+
+  // ──────────────────────────────────────────────
+  // Documents (org-scoped, optionally linked to instance)
+  // ──────────────────────────────────────────────
+  documents: defineTable({
+    orgId: v.id("organizations"),
+    title: v.string(),
+    content: v.string(),
+    docType: v.union(
+      v.literal("general"),
+      v.literal("spec"),
+      v.literal("runbook"),
+      v.literal("reference"),
+    ),
+    instanceId: v.optional(v.id("gatewayInstances")),
+    tags: v.array(v.string()),
+    createdBy: v.id("users"),
+    updatedAt: v.number(),
+    // ── File attachment (optional) ──
+    storageId: v.optional(v.id("_storage")),
+    fileName: v.optional(v.string()),
+    fileSize: v.optional(v.number()),
+    mimeType: v.optional(v.string()),
+  })
+    .index("by_orgId", ["orgId"])
+    .index("by_orgId_docType", ["orgId", "docType"])
+    .index("by_instanceId", ["instanceId"])
+    .searchIndex("search_content", {
+      searchField: "content",
+      filterFields: ["orgId"],
+    }),
+
+  // ──────────────────────────────────────────────
+  // Org-to-VPS access assignments (authorization + quota)
+  // ──────────────────────────────────────────────
+  orgVpsAccess: defineTable({
+    orgId: v.id("organizations"),
+    vpsId: v.id("vpsInstances"),
+    maxInstances: v.number(),
+    assignedBy: v.id("users"),
+    assignedAt: v.number(),
+  })
+    .index("by_orgId", ["orgId"])
+    .index("by_vpsId", ["vpsId"])
+    .index("by_orgId_vpsId", ["orgId", "vpsId"]),
+
+  // ──────────────────────────────────────────────
+  // Deployments (provisioning lifecycle — real-time step tracking)
+  // Mirrors Agency-AI DeploymentState + DeploymentStep types
+  // ──────────────────────────────────────────────
+  deployments: defineTable({
+    orgId: v.id("organizations"),
+    vpsId: v.id("vpsInstances"),
+    instanceName: v.string(),
+    config: v.object({
+      model: v.object({
+        primary: v.string(),
+        fallbacks: v.array(v.string()),
+      }),
+      skillIds: v.array(v.id("skills")),
+      brainFiles: v.array(
+        v.object({ name: v.string(), content: v.string() }),
+      ),
+      roleTemplate: v.optional(v.string()),
+      agentIdentity: v.optional(
+        v.object({
+          name: v.string(),
+          email: v.optional(v.string()),
+          gender: v.optional(v.string()),
+        }),
+      ),
+      gatewayAuth: v.object({
+        mode: v.literal("token"),
+        token: v.string(),
+      }),
+    }),
+    port: v.optional(v.number()),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("provisioning"),
+      v.literal("running"),
+      v.literal("failed"),
+      v.literal("cancelled"),
+    ),
+    steps: v.array(
+      v.object({
+        id: v.string(),
+        name: v.string(),
+        status: v.union(
+          v.literal("pending"),
+          v.literal("running"),
+          v.literal("success"),
+          v.literal("failed"),
+          v.literal("skipped"),
+        ),
+        startedAt: v.optional(v.number()),
+        completedAt: v.optional(v.number()),
+        error: v.optional(v.string()),
+      }),
+    ),
+    gatewayInstanceId: v.optional(v.id("gatewayInstances")),
+    error: v.optional(v.string()),
+    createdBy: v.id("users"),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_orgId", ["orgId"])
+    .index("by_vpsId", ["vpsId"])
+    .index("by_status", ["status"])
+    .index("by_orgId_status", ["orgId", "status"]),
 
   // ──────────────────────────────────────────────
   // System settings (key-value, category-based)

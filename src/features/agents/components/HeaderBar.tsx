@@ -21,6 +21,7 @@ type HeaderBarProps = {
   userContext?: {
     name: string;
     orgName: string;
+    orgRole?: string;
     onSignOut: () => void;
   } | null;
   /** Gateway tabs for multi-gateway orgs */
@@ -74,6 +75,12 @@ export const HeaderBar = ({
               <span className="font-semibold text-foreground">{userContext.orgName}</span>
               <span className="text-border">|</span>
               <span>{userContext.name}</span>
+              {userContext.orgRole && (
+                <>
+                  <span className="text-border">|</span>
+                  <span className="uppercase tracking-wider">{userContext.orgRole}</span>
+                </>
+              )}
             </span>
           ) : null}
           {gatewayTabs && gatewayTabs.length > 1 && onGatewaySelect ? (

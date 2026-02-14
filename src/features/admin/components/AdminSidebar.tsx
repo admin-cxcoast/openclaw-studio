@@ -9,6 +9,7 @@ import {
   Users,
   Brain,
   Blocks,
+  Puzzle,
   Settings,
 } from "lucide-react";
 
@@ -19,6 +20,7 @@ const navItems = [
   { href: "/admin/vps", label: "VPS Instances", icon: Server },
   { href: "/admin/providers", label: "Providers", icon: Blocks },
   { href: "/admin/models", label: "Models", icon: Brain },
+  { href: "/admin/skills", label: "Skills", icon: Puzzle },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 

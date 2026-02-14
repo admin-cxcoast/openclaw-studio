@@ -2,6 +2,13 @@ import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import { requireSuperAdmin } from "./lib/authorization";
 
+export const get = query({
+  args: { id: v.id("organizations") },
+  handler: async (ctx, args) => {
+    return ctx.db.get(args.id);
+  },
+});
+
 export const list = query({
   args: {},
   handler: async (ctx) => {
@@ -73,6 +80,8 @@ export const update = mutation({
       v.object({
         maxAgents: v.optional(v.number()),
         maxVps: v.optional(v.number()),
+        maxInstances: v.optional(v.number()),
+        enabledSkillCategories: v.optional(v.array(v.string())),
         features: v.optional(v.array(v.string())),
       }),
     ),

@@ -190,6 +190,23 @@ export const remove = mutation({
   },
 });
 
+export const get = query({
+  args: { id: v.id("gatewayInstances") },
+  handler: async (ctx, args) => {
+    return ctx.db.get(args.id);
+  },
+});
+
+// ── Token-based lookup (for API route auth) ─────────────
+
+export const getByToken = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const all = await ctx.db.query("gatewayInstances").collect();
+    return all.find((inst) => inst.token === args.token) ?? null;
+  },
+});
+
 // ── User-facing query ───────────────────────────────────
 
 export const getMyGateways = query({
