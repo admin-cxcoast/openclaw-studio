@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery as useConvexQuery } from "convex/react";
+import { useQuery as useConvexQuery, useMutation as useConvexMutation } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { api as convexApi } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import { AgentChatPanel } from "@/features/agents/components/AgentChatPanel";
 import {
   AgentBrainPanel,
@@ -204,6 +205,7 @@ const AgentStudioPage = ({
   onGatewaySelect,
   orgId,
   orgRole,
+  activeInstanceId,
 }: {
   gatewayOverride?: GatewayOverride | null;
   userContext?: { name: string; orgName: string; orgRole?: string; onSignOut: () => void } | null;
@@ -212,6 +214,7 @@ const AgentStudioPage = ({
   onGatewaySelect?: (idx: number) => void;
   orgId?: string;
   orgRole?: "owner" | "admin" | "member" | "viewer";
+  activeInstanceId?: string;
 }) => {
   const [settingsCoordinator] = useState(() => createStudioSettingsCoordinator());
   const {
@@ -232,6 +235,9 @@ const AgentStudioPage = ({
   } = useGatewayConnection(settingsCoordinator, gatewayOverride);
 
   const { state, dispatch, hydrateAgents, setError, setLoading } = useAgentStore();
+  const requestAgentCreate = useConvexMutation(convexApi.agents.requestCreate);
+  const confirmAgentCreate = useConvexMutation(convexApi.agents.confirmCreate);
+  const confirmAgentRemove = useConvexMutation(convexApi.agents.confirmRemove);
   const [showConnectionPanel, setShowConnectionPanel] = useState(false);
   const [focusFilter, setFocusFilter] = useState<FocusFilter>("all");
   const [focusedPreferencesLoaded, setFocusedPreferencesLoaded] = useState(false);
@@ -1100,6 +1106,17 @@ const AgentStudioPage = ({
               fetchJson,
               logError: (message, error) => console.error(message, error),
             });
+            // Update agent count in Convex
+            if (orgId && activeInstanceId) {
+              try {
+                await confirmAgentRemove({
+                  instanceId: activeInstanceId as Id<"gatewayInstances">,
+                  agentName: agent.name,
+                });
+              } catch (e) {
+                console.error("Failed to update agent count:", e);
+              }
+            }
             setSettingsAgentId(null);
             if (isLocalGateway) {
               await loadAgents();
@@ -1133,6 +1150,9 @@ const AgentStudioPage = ({
       loadAgents,
       renameAgentBlock,
       setError,
+      orgId,
+      activeInstanceId,
+      confirmAgentRemove,
     ]
   );
 
@@ -1293,6 +1313,14 @@ const AgentStudioPage = ({
     setCreateAgentBusy(true);
     try {
       const name = providedName?.trim() || resolveNextNewAgentName(stateRef.current.agents);
+      // Quota check via Convex (only when running managed instances)
+      if (orgId && activeInstanceId) {
+        await requestAgentCreate({
+          orgId: orgId as Id<"organizations">,
+          instanceId: activeInstanceId as Id<"gatewayInstances">,
+          agentName: name,
+        });
+      }
       setCreateAgentBlock({
         agentId: null,
         agentName: name,
@@ -1309,6 +1337,17 @@ const AgentStudioPage = ({
             return { ...current, phase: "creating" };
           });
           const created = await createGatewayAgent({ client, name });
+          // Update agent count in Convex
+          if (orgId && activeInstanceId) {
+            try {
+              await confirmAgentCreate({
+                instanceId: activeInstanceId as Id<"gatewayInstances">,
+                agentName: name,
+              });
+            } catch (e) {
+              console.error("Failed to update agent count:", e);
+            }
+          }
           flushPendingDraft(focusedAgent?.agentId ?? null);
           focusFilterTouchedRef.current = true;
           setFocusFilter("all");
@@ -1366,6 +1405,10 @@ const AgentStudioPage = ({
     enqueueConfigMutation,
     setError,
     status,
+    orgId,
+    activeInstanceId,
+    requestAgentCreate,
+    confirmAgentCreate,
   ]);
 
   useGatewayRestartBlock({
@@ -2411,13 +2454,12 @@ function AuthGate() {
   const safeIdx = selectedGatewayIdx >= gateways.length ? 0 : selectedGatewayIdx;
   const activeGateway = gateways[safeIdx];
 
-  const sshHost = activeGateway.vpsIp || activeGateway.vpsHostname;
   const gatewayOverride: GatewayOverride = {
-    gatewayUrl: resolveStudioProxyGatewayUrl(activeGateway.gatewayUrl, sshHost ? {
-      host: sshHost,
+    gatewayUrl: resolveStudioProxyGatewayUrl(activeGateway.gatewayUrl, {
+      host: activeGateway.vpsIp || activeGateway.vpsHostname,
       user: activeGateway.sshUser,
       port: activeGateway.sshPort,
-    } : undefined),
+    }),
     token: activeGateway.token ?? "",
     upstreamUrl: activeGateway.gatewayUrl,
   };
@@ -2453,6 +2495,7 @@ function AuthGate() {
           onGatewaySelect={setSelectedGatewayIdx}
           orgId={sessionCtx.orgs[0].orgId as string}
           orgRole={sessionCtx.orgs[0].orgRole}
+          activeInstanceId={activeGateway.instanceId}
         />
       </AgentStoreProvider>
     </div>

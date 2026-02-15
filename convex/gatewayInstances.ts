@@ -190,6 +190,168 @@ export const remove = mutation({
   },
 });
 
+// ── System-level mutations (called from API routes via ConvexHttpClient) ─
+
+export const createFromSystem = mutation({
+  args: {
+    provisionerSecret: v.string(),
+    vpsId: v.id("vpsInstances"),
+    orgId: v.id("organizations"),
+    name: v.string(),
+    port: v.number(),
+    token: v.optional(v.string()),
+    url: v.optional(v.string()),
+    stateDir: v.optional(v.string()),
+    status: v.optional(
+      v.union(
+        v.literal("running"),
+        v.literal("stopped"),
+        v.literal("error"),
+        v.literal("unknown"),
+      ),
+    ),
+    agentCount: v.optional(v.number()),
+    primaryAgentName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Validate provisioner secret from systemSettings
+    const secretSetting = await ctx.db
+      .query("systemSettings")
+      .withIndex("by_key", (q) => q.eq("key", "provisioner_secret"))
+      .unique();
+    if (
+      !secretSetting ||
+      secretSetting.value !== args.provisionerSecret
+    ) {
+      throw new Error("Invalid provisioner secret");
+    }
+
+    const vps = await ctx.db.get(args.vpsId);
+    if (!vps) throw new Error("VPS not found");
+
+    // Check capacity
+    const existing = await ctx.db
+      .query("gatewayInstances")
+      .withIndex("by_vpsId", (q) => q.eq("vpsId", args.vpsId))
+      .collect();
+
+    if (vps.maxInstances && existing.length >= vps.maxInstances) {
+      throw new Error(
+        `No capacity available (${existing.length}/${vps.maxInstances})`,
+      );
+    }
+
+    // Check port conflict
+    const portConflict = existing.find((i) => i.port === args.port);
+    if (portConflict) {
+      throw new Error(`Port ${args.port} already in use`);
+    }
+
+    const {
+      provisionerSecret: _secret,
+      status: statusArg,
+      agentCount,
+      primaryAgentName,
+      ...rest
+    } = args;
+    return ctx.db.insert("gatewayInstances", {
+      ...rest,
+      status: statusArg ?? "unknown",
+      agentCount,
+      primaryAgentName,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const updateFromSystem = mutation({
+  args: {
+    provisionerSecret: v.string(),
+    id: v.id("gatewayInstances"),
+    name: v.optional(v.string()),
+    port: v.optional(v.number()),
+    token: v.optional(v.string()),
+    url: v.optional(v.string()),
+    stateDir: v.optional(v.string()),
+    status: v.optional(
+      v.union(
+        v.literal("running"),
+        v.literal("stopped"),
+        v.literal("error"),
+        v.literal("unknown"),
+      ),
+    ),
+    agentCount: v.optional(v.number()),
+    primaryAgentName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Validate provisioner secret
+    const secretSetting = await ctx.db
+      .query("systemSettings")
+      .withIndex("by_key", (q) => q.eq("key", "provisioner_secret"))
+      .unique();
+    if (
+      !secretSetting ||
+      secretSetting.value !== args.provisionerSecret
+    ) {
+      throw new Error("Invalid provisioner secret");
+    }
+
+    const { provisionerSecret: _secret, id, ...fields } = args;
+    const inst = await ctx.db.get(id);
+    if (!inst) throw new Error("Gateway instance not found");
+
+    const updates: Record<string, unknown> = { updatedAt: Date.now() };
+    if (fields.name !== undefined) updates.name = fields.name;
+    if (fields.agentCount !== undefined)
+      updates.agentCount = fields.agentCount;
+    if (fields.primaryAgentName !== undefined)
+      updates.primaryAgentName = fields.primaryAgentName;
+    if (fields.port !== undefined) {
+      const siblings = await ctx.db
+        .query("gatewayInstances")
+        .withIndex("by_vpsId", (q) => q.eq("vpsId", inst.vpsId))
+        .collect();
+      const conflict = siblings.find(
+        (s) => s._id !== id && s.port === fields.port,
+      );
+      if (conflict) {
+        throw new Error(`Port ${fields.port} already in use`);
+      }
+      updates.port = fields.port;
+    }
+    if (fields.token !== undefined && fields.token !== "********") {
+      updates.token = fields.token || undefined;
+    }
+    if (fields.url !== undefined) updates.url = fields.url || undefined;
+    if (fields.stateDir !== undefined)
+      updates.stateDir = fields.stateDir || undefined;
+    if (fields.status !== undefined) updates.status = fields.status;
+
+    await ctx.db.patch(id, updates);
+  },
+});
+
+export const removeFromSystem = mutation({
+  args: {
+    provisionerSecret: v.string(),
+    id: v.id("gatewayInstances"),
+  },
+  handler: async (ctx, args) => {
+    const secretSetting = await ctx.db
+      .query("systemSettings")
+      .withIndex("by_key", (q) => q.eq("key", "provisioner_secret"))
+      .unique();
+    if (
+      !secretSetting ||
+      secretSetting.value !== args.provisionerSecret
+    ) {
+      throw new Error("Invalid provisioner secret");
+    }
+    await ctx.db.delete(args.id);
+  },
+});
+
 export const get = query({
   args: { id: v.id("gatewayInstances") },
   handler: async (ctx, args) => {
@@ -236,11 +398,7 @@ export const getMyGateways = query({
         gatewayUrl,
         token: inst.token ?? null,
         status: inst.status,
-        vpsHostname: vps.hostname,
-        vpsIp: vps.ipAddress,
-        port: inst.port,
-        sshUser: vps.sshUser ?? "root",
-        sshPort: vps.sshPort ?? 22,
+        agentCount: inst.agentCount ?? 1,
       });
     }
 

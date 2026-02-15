@@ -93,6 +93,7 @@ export default defineSchema({
     sshUser: v.optional(v.string()),
     sshPort: v.optional(v.number()),
     tags: v.optional(v.array(v.string())),
+    monthlyCostCents: v.optional(v.number()),
     lastHealthCheck: v.optional(v.number()),
     updatedAt: v.number(),
     // ── Deprecated fields (kept for migration, will be removed) ──
@@ -418,6 +419,60 @@ export default defineSchema({
     .index("by_vpsId", ["vpsId"])
     .index("by_status", ["status"])
     .index("by_orgId_status", ["orgId", "status"]),
+
+  // ──────────────────────────────────────────────
+  // System settings (key-value, category-based)
+  // ──────────────────────────────────────────────
+  // ──────────────────────────────────────────────
+  // Plan definitions (pricing tiers)
+  // ──────────────────────────────────────────────
+  planDefinitions: defineTable({
+    plan: v.string(),
+    displayName: v.string(),
+    monthlyBaseCents: v.number(),
+    includedInstances: v.number(),
+    includedAgentsPerInstance: v.number(),
+    overagePerInstanceCents: v.number(),
+    overagePerAgentCents: v.number(),
+    llmMarkupPercent: v.optional(v.number()),
+    isActive: v.boolean(),
+    updatedAt: v.number(),
+  }).index("by_plan", ["plan"]),
+
+  // ──────────────────────────────────────────────
+  // Usage summary (per-org monthly cost snapshots)
+  // ──────────────────────────────────────────────
+  usageSummary: defineTable({
+    orgId: v.id("organizations"),
+    period: v.string(),
+    instanceCount: v.number(),
+    agentCount: v.number(),
+    infrastructureCostCents: v.number(),
+    llmCostCents: v.number(),
+    overageCostCents: v.number(),
+    totalCostCents: v.number(),
+    status: v.union(v.literal("current"), v.literal("finalized")),
+    updatedAt: v.number(),
+  })
+    .index("by_orgId", ["orgId"])
+    .index("by_orgId_period", ["orgId", "period"]),
+
+  // ──────────────────────────────────────────────
+  // Usage records (per-agent LLM token usage, gateway-reported)
+  // ──────────────────────────────────────────────
+  usageRecords: defineTable({
+    orgId: v.id("organizations"),
+    instanceId: v.id("gatewayInstances"),
+    agentId: v.string(),
+    modelId: v.string(),
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+    costCents: v.number(),
+    period: v.string(),
+    reportedAt: v.number(),
+  })
+    .index("by_orgId_period", ["orgId", "period"])
+    .index("by_instanceId", ["instanceId"]),
 
   // ──────────────────────────────────────────────
   // System settings (key-value, category-based)

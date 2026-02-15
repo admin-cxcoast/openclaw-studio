@@ -1,6 +1,8 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import { requireOrgAccess } from "./lib/authorization";
+import type { MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 
 // Instance name validation — ported from Agency-AI validation.ts
 const INSTANCE_NAME_RE = /^[a-z][a-z0-9-]{1,30}$/;
@@ -22,7 +24,14 @@ export const get = query({
   handler: async (ctx, args) => {
     const dep = await ctx.db.get(args.id);
     if (!dep) return null;
-    await requireOrgAccess(ctx, dep.orgId);
+    const { profile } = await requireOrgAccess(ctx, dep.orgId);
+
+    // Strip sensitive auth token for non-superAdmin (vpsId kept — it's an opaque ID)
+    if (profile.role !== "superAdmin") {
+      const { config, ...safe } = dep;
+      const { gatewayAuth: _auth, ...safeConfig } = config;
+      return { ...safe, config: safeConfig } as typeof dep;
+    }
     return dep;
   },
 });
@@ -68,12 +77,73 @@ export const listActive = query({
   },
 });
 
+/** System-level query for the provisioner — validates secret, returns full deployment data. */
+export const getForSystem = query({
+  args: {
+    provisionerSecret: v.string(),
+    id: v.id("deployments"),
+  },
+  handler: async (ctx, args) => {
+    const secretSetting = await ctx.db
+      .query("systemSettings")
+      .withIndex("by_key", (q) => q.eq("key", "provisioner_secret"))
+      .unique();
+    if (
+      !secretSetting ||
+      secretSetting.value !== args.provisionerSecret
+    ) {
+      throw new Error("Invalid provisioner secret");
+    }
+    return ctx.db.get(args.id);
+  },
+});
+
+// ── Auto-placement: find VPS with most remaining capacity ─
+
+async function selectBestVps(
+  ctx: MutationCtx,
+): Promise<Id<"vpsInstances"> | null> {
+  const allVps = await ctx.db.query("vpsInstances").collect();
+  const running = allVps.filter((v) => v.status === "running");
+  if (running.length === 0) return null;
+
+  let bestId: Id<"vpsInstances"> | null = null;
+  let bestRemaining = -1;
+
+  for (const vps of running) {
+    if (!vps.maxInstances) continue; // skip VPS without capacity configured
+
+    // Count existing gateway instances on this VPS
+    const instances = await ctx.db
+      .query("gatewayInstances")
+      .withIndex("by_vpsId", (q) => q.eq("vpsId", vps._id))
+      .collect();
+
+    // Count in-flight deployments targeting this VPS
+    const queuedDeps = await ctx.db
+      .query("deployments")
+      .withIndex("by_vpsId", (q) => q.eq("vpsId", vps._id))
+      .collect();
+    const inFlight = queuedDeps.filter(
+      (d) => d.status === "queued" || d.status === "provisioning",
+    ).length;
+
+    const remaining = vps.maxInstances - instances.length - inFlight;
+    if (remaining > bestRemaining) {
+      bestRemaining = remaining;
+      bestId = vps._id;
+    }
+  }
+
+  return bestRemaining > 0 ? bestId : null;
+}
+
 // ── Create deployment (org admin+) ────────────────────────
 
 export const create = mutation({
   args: {
     orgId: v.optional(v.id("organizations")),
-    vpsId: v.id("vpsInstances"),
+    vpsId: v.optional(v.id("vpsInstances")),
     instanceName: v.string(),
     config: v.object({
       model: v.object({
@@ -115,28 +185,58 @@ export const create = mutation({
       );
     }
 
-    // 2. Verify orgVpsAccess exists
-    const access = await ctx.db
-      .query("orgVpsAccess")
-      .withIndex("by_orgId_vpsId", (q) =>
-        q.eq("orgId", orgId).eq("vpsId", args.vpsId),
-      )
-      .unique();
-    if (!access) {
-      throw new Error("Organization does not have access to this VPS");
+    // 2. Resolve VPS — auto-place if not specified
+    let resolvedVpsId: Id<"vpsInstances">;
+    if (args.vpsId) {
+      // Legacy / superAdmin override path — validate access
+      const access = await ctx.db
+        .query("orgVpsAccess")
+        .withIndex("by_orgId_vpsId", (q) =>
+          q.eq("orgId", orgId).eq("vpsId", args.vpsId!),
+        )
+        .unique();
+      if (!access) {
+        throw new Error("Organization does not have access to this VPS");
+      }
+      const orgVpsInstances = await ctx.db
+        .query("gatewayInstances")
+        .withIndex("by_vpsId_orgId", (q) =>
+          q.eq("vpsId", args.vpsId!).eq("orgId", orgId),
+        )
+        .collect();
+      if (orgVpsInstances.length >= access.maxInstances) {
+        throw new Error(
+          `VPS quota exceeded: ${orgVpsInstances.length}/${access.maxInstances} instances used`,
+        );
+      }
+      resolvedVpsId = args.vpsId;
+    } else {
+      // SaaS path — auto-select VPS with most capacity
+      const bestVps = await selectBestVps(ctx);
+      if (!bestVps) {
+        throw new Error("No capacity available. Please try again later.");
+      }
+      resolvedVpsId = bestVps;
     }
 
-    // 3. Check VPS quota
-    const vpsInstances = await ctx.db
-      .query("gatewayInstances")
-      .withIndex("by_vpsId_orgId", (q) =>
-        q.eq("vpsId", args.vpsId).eq("orgId", orgId),
-      )
-      .collect();
-    if (vpsInstances.length >= access.maxInstances) {
-      throw new Error(
-        `VPS quota exceeded: ${vpsInstances.length}/${access.maxInstances} instances used`,
-      );
+    // 3. Check global VPS capacity
+    const vps = await ctx.db.get(resolvedVpsId);
+    if (!vps) throw new Error("VPS not found");
+    if (vps.maxInstances) {
+      const allOnVps = await ctx.db
+        .query("gatewayInstances")
+        .withIndex("by_vpsId", (q) => q.eq("vpsId", resolvedVpsId))
+        .collect();
+      const pendingOnVps = await ctx.db
+        .query("deployments")
+        .withIndex("by_vpsId", (q) => q.eq("vpsId", resolvedVpsId))
+        .collect();
+      const inFlight = pendingOnVps.filter(
+        (d) => d.status === "queued" || d.status === "provisioning",
+      ).length;
+      if (allOnVps.length + inFlight >= vps.maxInstances) {
+        throw new Error("No capacity available. Please try again later.");
+      }
     }
 
     // 4. Check org-level maxInstances (if set)
@@ -148,18 +248,22 @@ export const create = mutation({
         .collect();
       if (allOrgInstances.length >= org.settings.maxInstances) {
         throw new Error(
-          `Organization instance limit reached: ${allOrgInstances.length}/${org.settings.maxInstances}`,
+          `Instance limit reached: ${allOrgInstances.length}/${org.settings.maxInstances}`,
         );
       }
     }
 
-    // 5. Check name uniqueness on same VPS
-    const nameConflict = vpsInstances.find(
+    // 5. Check name uniqueness on the resolved VPS
+    const allVpsInstances = await ctx.db
+      .query("gatewayInstances")
+      .withIndex("by_vpsId", (q) => q.eq("vpsId", resolvedVpsId))
+      .collect();
+    const nameConflict = allVpsInstances.find(
       (i) => i.name === args.instanceName,
     );
     if (nameConflict) {
       throw new Error(
-        `Instance name "${args.instanceName}" already in use on this VPS`,
+        `Instance name "${args.instanceName}" is already in use`,
       );
     }
 
@@ -171,7 +275,7 @@ export const create = mutation({
 
     return ctx.db.insert("deployments", {
       orgId,
-      vpsId: args.vpsId,
+      vpsId: resolvedVpsId,
       instanceName: args.instanceName,
       config: args.config,
       status: "queued",

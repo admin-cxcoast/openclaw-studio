@@ -63,7 +63,6 @@ function ConfigForm({
   onClose: () => void;
 }) {
   const [instanceName, setInstanceName] = useState("");
-  const [selectedVps, setSelectedVps] = useState<string>("");
   const [modelId, setModelId] = useState("claude-sonnet-4-5-20250929");
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
@@ -71,9 +70,6 @@ function ConfigForm({
 
   const typedOrgId = orgId as Id<"organizations">;
 
-  const availableVps = useQuery(api.orgVpsAccess.getAvailableVpsForOrg, {
-    orgId: typedOrgId,
-  });
   const availableSkills = useQuery(api.skills.listAvailable, {
     orgId: typedOrgId,
   });
@@ -84,9 +80,7 @@ function ConfigForm({
     ? "Lowercase letters, numbers, hyphens. Must start with a letter (2-31 chars)."
     : null;
 
-  const vpsLoading = availableVps === undefined;
-  const vpsEmpty = availableVps !== undefined && availableVps.length === 0;
-  const canSubmit = nameValid && selectedVps && modelId.trim() && !submitting && !vpsEmpty;
+  const canSubmit = nameValid && modelId.trim() && !submitting;
 
   const handleToggleSkill = useCallback((skillId: string) => {
     setSelectedSkills((prev) => {
@@ -109,7 +103,6 @@ function ConfigForm({
       const token = crypto.randomUUID();
       const depId = await createDeployment({
         orgId: typedOrgId,
-        vpsId: selectedVps as Id<"vpsInstances">,
         instanceName,
         config: {
           model: { primary: modelId, fallbacks: [] },
@@ -122,7 +115,10 @@ function ConfigForm({
       // Fire-and-forget: trigger the SSH pipeline
       fetch("/api/org/provision-gateway", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Studio-Request": "1",
+        },
         body: JSON.stringify({ deploymentId: depId }),
       }).catch((fetchErr) => {
         console.error("[DeployInstanceModal] provision-gateway fetch error:", fetchErr);
@@ -159,40 +155,6 @@ function ConfigForm({
             <p className="mt-1 font-mono text-[10px] text-destructive">
               {nameError}
             </p>
-          )}
-        </div>
-
-        {/* VPS Selector */}
-        <div>
-          <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            VPS
-          </label>
-          {vpsLoading ? (
-            <p className="font-mono text-[10px] text-muted-foreground">Loading VPS list...</p>
-          ) : vpsEmpty ? (
-            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2">
-              <p className="font-mono text-[10px] text-destructive">
-                No VPS available for your organization.
-              </p>
-              <p className="mt-1 font-mono text-[9px] text-muted-foreground">
-                A super admin must assign VPS access to your organization
-                before you can deploy instances. Go to Admin &gt; Org VPS Access.
-              </p>
-            </div>
-          ) : (
-            <select
-              value={selectedVps}
-              onChange={(e) => setSelectedVps(e.target.value)}
-              className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 font-mono text-xs text-foreground focus:border-ring focus:outline-none"
-            >
-              <option value="">Select a VPS...</option>
-              {availableVps!.map((vps) => (
-                <option key={vps.vpsId} value={vps.vpsId}>
-                  {vps.hostname} — {vps.ipAddress} ({vps.remaining} of{" "}
-                  {vps.maxInstances} remaining)
-                </option>
-              ))}
-            </select>
           )}
         </div>
 
@@ -314,7 +276,7 @@ function ProgressView({
         Deploying: {deployment.instanceName}
       </h3>
       <p className="mb-4 font-mono text-[10px] text-muted-foreground">
-        Provisioning gateway instance on VPS...
+        Provisioning gateway instance...
       </p>
 
       <div className="flex flex-col gap-2">

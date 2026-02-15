@@ -186,7 +186,7 @@ export const FleetSidebar = ({
                         <span className="font-mono text-[9px] text-muted-foreground">
                           {!isAdmin
                             ? "Admin access required"
-                            : "Provision a new gateway on a VPS"}
+                            : "Provision a new gateway instance"}
                         </span>
                       </button>
                     </>

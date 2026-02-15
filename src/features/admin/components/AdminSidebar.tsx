@@ -11,6 +11,8 @@ import {
   Blocks,
   Puzzle,
   Settings,
+  CreditCard,
+  Receipt,
 } from "lucide-react";
 
 const navItems = [
@@ -21,6 +23,8 @@ const navItems = [
   { href: "/admin/providers", label: "Providers", icon: Blocks },
   { href: "/admin/models", label: "Models", icon: Brain },
   { href: "/admin/skills", label: "Skills", icon: Puzzle },
+  { href: "/admin/plans", label: "Plans", icon: CreditCard },
+  { href: "/admin/billing", label: "Billing", icon: Receipt },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 

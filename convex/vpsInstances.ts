@@ -47,6 +47,7 @@ export const upsertFromHostinger = mutation({
       v.literal("unassigned"), // deprecated — kept for migration
     ),
     maxInstances: v.optional(v.number()),
+    monthlyCostCents: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await requireSuperAdmin(ctx);
@@ -64,6 +65,7 @@ export const upsertFromHostinger = mutation({
         plan: args.plan,
         status: args.status,
         maxInstances: args.maxInstances ?? existing.maxInstances,
+        monthlyCostCents: args.monthlyCostCents ?? existing.monthlyCostCents,
         updatedAt: Date.now(),
       });
       return existing._id;
@@ -110,6 +112,7 @@ export const updateVpsDetails = mutation({
     sshUser: v.optional(v.string()),
     sshPort: v.optional(v.number()),
     maxInstances: v.optional(v.number()),
+    monthlyCostCents: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await requireSuperAdmin(ctx);
@@ -122,6 +125,8 @@ export const updateVpsDetails = mutation({
       updates.sshPort = fields.sshPort || undefined;
     if (fields.maxInstances !== undefined)
       updates.maxInstances = fields.maxInstances || undefined;
+    if (fields.monthlyCostCents !== undefined)
+      updates.monthlyCostCents = fields.monthlyCostCents || undefined;
     await ctx.db.patch(id, updates);
   },
 });

@@ -707,12 +707,14 @@ function VpsSettingsPanel({
     sshUser?: string;
     sshPort?: number;
     maxInstances?: number;
+    monthlyCostCents?: number;
   };
   onSave: (updates: {
     ipAddress?: string;
     sshUser?: string;
     sshPort?: number;
     maxInstances?: number;
+    monthlyCostCents?: number;
   }) => Promise<void>;
   onClose: () => void;
 }) {
@@ -720,6 +722,7 @@ function VpsSettingsPanel({
   const [sshUser, setSshUser] = useState(vps.sshUser ?? "");
   const [sshPort, setSshPort] = useState<number | "">(vps.sshPort ?? "");
   const [maxInst, setMaxInst] = useState<number | "">(vps.maxInstances ?? "");
+  const [monthlyCost, setMonthlyCost] = useState<number | "">(vps.monthlyCostCents ?? "");
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -731,6 +734,7 @@ function VpsSettingsPanel({
         sshUser: sshUser.trim() || undefined,
         sshPort: sshPort !== "" ? Number(sshPort) : undefined,
         maxInstances: maxInst !== "" ? Number(maxInst) : undefined,
+        monthlyCostCents: monthlyCost !== "" ? Number(monthlyCost) : undefined,
       });
     } finally {
       setSaving(false);
@@ -746,7 +750,7 @@ function VpsSettingsPanel({
       <div className="mb-3 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
         VPS Settings
       </div>
-      <div className="grid max-w-2xl grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-5">
         <div className="flex flex-col gap-1">
           <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
             IP Address
@@ -800,6 +804,24 @@ function VpsSettingsPanel({
             placeholder="1"
             className="rounded-md border border-border bg-input px-3 py-1.5 font-mono text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
           />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+            Monthly Cost (cents)
+          </label>
+          <input
+            type="number"
+            min={0}
+            value={monthlyCost}
+            onChange={(e) =>
+              setMonthlyCost(e.target.value ? Number(e.target.value) : "")
+            }
+            placeholder="1200"
+            className="rounded-md border border-border bg-input px-3 py-1.5 font-mono text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
+          />
+          <span className="font-mono text-[9px] text-muted-foreground">
+            e.g. 1200 = $12.00/mo
+          </span>
         </div>
       </div>
       <div className="mt-3 flex items-center gap-2">

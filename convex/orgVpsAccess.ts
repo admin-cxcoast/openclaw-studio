@@ -115,7 +115,9 @@ export const remove = mutation({
   },
 });
 
-// ── Org-scoped queries (for deploy modal) ─────────────────
+// ── Org-scoped queries ───────────────────────────────────
+// @deprecated — VPS is now abstracted from orgs. Auto-placement handles VPS selection.
+// Kept for backward compatibility; no longer called from the deploy modal.
 
 export const listByOrg = query({
   args: { orgId: v.optional(v.id("organizations")) },
@@ -148,6 +150,7 @@ export const listByOrg = query({
   },
 });
 
+/** @deprecated — Use auto-placement via deployments.create instead. */
 export const getAvailableVpsForOrg = query({
   args: { orgId: v.optional(v.id("organizations")) },
   handler: async (ctx, args) => {
@@ -168,7 +171,6 @@ export const getAvailableVpsForOrg = query({
       const vps = await ctx.db.get(a.vpsId);
       if (!vps || vps.status !== "running") continue;
 
-      // Count existing instances for this org on this VPS
       const instances = await ctx.db
         .query("gatewayInstances")
         .withIndex("by_vpsId_orgId", (q) =>

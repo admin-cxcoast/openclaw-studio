@@ -123,6 +123,23 @@ async function markStep(
 
 export async function POST(req: NextRequest) {
   const convex = getConvex();
+  const provisionerSecret = process.env.PROVISIONER_SECRET;
+
+  if (!provisionerSecret) {
+    return NextResponse.json(
+      { error: "Server misconfigured: missing PROVISIONER_SECRET" },
+      { status: 500 },
+    );
+  }
+
+  // Auth: require internal request header (same-origin protection)
+  const internalHeader = req.headers.get("x-studio-request");
+  if (internalHeader !== "1") {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 },
+    );
+  }
 
   try {
     const body = await req.json();
@@ -137,8 +154,11 @@ export async function POST(req: NextRequest) {
 
     const depId = deploymentId as Id<"deployments">;
 
-    // Load deployment
-    const dep = await convex.query(api.deployments.get, { id: depId });
+    // Load deployment via system query (provisioner has no user session)
+    const dep = await convex.query(api.deployments.getForSystem, {
+      provisionerSecret,
+      id: depId,
+    });
     if (!dep) {
       return NextResponse.json(
         { error: "Deployment not found" },
@@ -315,11 +335,14 @@ export async function POST(req: NextRequest) {
       sshExec(sshTarget, sshPort, `"docker rm -f '${cName}' 2>/dev/null; true"`);
 
       // Docker run — mirrors Agency-AI's startDockerAgent()
+      // Memory capped at 2 GB per instance (5 agents × ~150 MB + base ~1 GB + headroom)
       const dockerCmd = [
         "docker run -d",
         `--name '${cName}'`,
         "--network host",
         "--restart unless-stopped",
+        "--memory 2g",
+        "--memory-swap 2g",
         `-v '${iDir}:/home/node/.openclaw'`,
         "-e HOME=/home/node",
         "-e TERM=xterm-256color",
@@ -411,8 +434,9 @@ export async function POST(req: NextRequest) {
       const gatewayUrl = `ws://${vps.ipAddress}:${port}`;
 
       const gatewayInstanceId = await convex.mutation(
-        api.gatewayInstances.create,
+        api.gatewayInstances.createFromSystem,
         {
+          provisionerSecret,
           vpsId: dep.vpsId,
           orgId: dep.orgId,
           name: dep.instanceName,

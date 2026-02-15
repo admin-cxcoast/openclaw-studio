@@ -4,6 +4,28 @@ import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { api } from "./_generated/api";
 
+// ── KVM tier capacity defaults ───────────────────────────
+// Based on Hostinger KVM specs vs OpenClaw gateway resource profile:
+//   ~1 GB RAM per instance, 25% headroom, OS+Docker overhead ~1 GB
+//   KVM 1: 4 GB RAM → 2 instances
+//   KVM 2: 8 GB RAM → 4 instances
+//   KVM 4: 16 GB RAM → 8 instances
+//   KVM 8: 32 GB RAM → 16 instances
+const DEFAULT_PLAN_CAPACITY: Record<string, number> = {
+  "kvm-1": 2,
+  "kvm-2": 4,
+  "kvm-4": 8,
+  "kvm-8": 16,
+};
+
+// Approximate Hostinger monthly costs per KVM tier (in cents)
+const DEFAULT_PLAN_COST_CENTS: Record<string, number> = {
+  "kvm-1": 599,
+  "kvm-2": 999,
+  "kvm-4": 1999,
+  "kvm-8": 3999,
+};
+
 async function fetchHostingerConfig(
   runQuery: (query: typeof api.systemSettings.getByKey, args: { key: string }) => Promise<{ _id: unknown; value: string; sensitive: boolean } | null>,
   revealQuery: (query: typeof api.systemSettings.reveal, args: { id: unknown }) => Promise<string>,
@@ -77,7 +99,13 @@ export const syncVpsFromHostinger = action({
     let synced = 0;
     for (const vm of machines) {
       const status = mapHostingerStatus(vm.state);
-      const maxInstances = vm.plan ? planCapacity[vm.plan] : undefined;
+      const planKey = vm.plan?.toLowerCase();
+      const maxInstances = planKey
+        ? (planCapacity[planKey] ?? DEFAULT_PLAN_CAPACITY[planKey])
+        : undefined;
+      const monthlyCostCents = planKey
+        ? DEFAULT_PLAN_COST_CENTS[planKey]
+        : undefined;
       await ctx.runMutation(api.vpsInstances.upsertFromHostinger, {
         hostingerId: String(vm.id),
         hostname: vm.hostname ?? `vps-${vm.id}`,
@@ -86,6 +114,7 @@ export const syncVpsFromHostinger = action({
         plan: vm.plan,
         status,
         maxInstances,
+        monthlyCostCents,
       });
       synced++;
     }

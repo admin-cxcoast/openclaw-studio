@@ -61,6 +61,23 @@ function getConvex(): ConvexHttpClient {
 
 export async function POST(req: NextRequest) {
   const convex = getConvex();
+  const provisionerSecret = process.env.PROVISIONER_SECRET;
+
+  if (!provisionerSecret) {
+    return NextResponse.json(
+      { error: "Server misconfigured: missing PROVISIONER_SECRET" },
+      { status: 500 },
+    );
+  }
+
+  // Auth: require internal request header (same-origin protection)
+  const internalHeader = req.headers.get("x-studio-request");
+  if (internalHeader !== "1") {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 },
+    );
+  }
 
   try {
     const body = await req.json();
@@ -139,7 +156,8 @@ export async function POST(req: NextRequest) {
             { status: 502 },
           );
         }
-        await convex.mutation(api.gatewayInstances.update, {
+        await convex.mutation(api.gatewayInstances.updateFromSystem, {
+          provisionerSecret,
           id: instId,
           status: "stopped",
         });
@@ -158,7 +176,8 @@ export async function POST(req: NextRequest) {
             { status: 502 },
           );
         }
-        await convex.mutation(api.gatewayInstances.update, {
+        await convex.mutation(api.gatewayInstances.updateFromSystem, {
+          provisionerSecret,
           id: instId,
           status: "running",
         });
@@ -177,7 +196,8 @@ export async function POST(req: NextRequest) {
             { status: 502 },
           );
         }
-        await convex.mutation(api.gatewayInstances.update, {
+        await convex.mutation(api.gatewayInstances.updateFromSystem, {
+          provisionerSecret,
           id: instId,
           status: "running",
         });
@@ -210,7 +230,10 @@ export async function POST(req: NextRequest) {
         }
 
         // Delete the gateway instance record
-        await convex.mutation(api.gatewayInstances.remove, { id: instId });
+        await convex.mutation(api.gatewayInstances.removeFromSystem, {
+          provisionerSecret,
+          id: instId,
+        });
 
         return NextResponse.json({ success: true, action: "delete" });
       }
