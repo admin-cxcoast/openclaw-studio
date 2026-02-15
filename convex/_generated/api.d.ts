@@ -18,6 +18,7 @@ import type * as instanceSkills from "../instanceSkills.js";
 import type * as knowledge from "../knowledge.js";
 import type * as knowledgeProposals from "../knowledgeProposals.js";
 import type * as lib_authorization from "../lib/authorization.js";
+import type * as lib_modelCatalog from "../lib/modelCatalog.js";
 import type * as migrations_migrateVpsToGatewayInstances from "../migrations/migrateVpsToGatewayInstances.js";
 import type * as models from "../models.js";
 import type * as orgMembers from "../orgMembers.js";
@@ -49,6 +50,7 @@ declare const fullApi: ApiFromModules<{
   knowledge: typeof knowledge;
   knowledgeProposals: typeof knowledgeProposals;
   "lib/authorization": typeof lib_authorization;
+  "lib/modelCatalog": typeof lib_modelCatalog;
   "migrations/migrateVpsToGatewayInstances": typeof migrations_migrateVpsToGatewayInstances;
   models: typeof models;
   orgMembers: typeof orgMembers;

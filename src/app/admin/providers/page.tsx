@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { ConfirmDialog } from "@/features/admin/components/ConfirmDialog";
 import { SensitiveField } from "@/features/admin/components/SensitiveField";
-import { Plus, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Trash2, ChevronDown, ChevronRight, Loader2, CheckCircle2, AlertTriangle, Zap } from "lucide-react";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
 export default function ProvidersPage() {
@@ -190,17 +190,21 @@ function ProviderCard({
   onDelete: () => void;
   onSaveCredential: (key: string, value: string) => Promise<void>;
 }) {
+  const hasKey = useQuery(api.providerCredentials.hasKey, { providerId: provider._id });
   const creds = useQuery(
     api.providerCredentials.list,
     expanded ? { providerId: provider._id } : "skip",
   );
   const revealCred = useMutation(api.providerCredentials.revealMut);
   const removeCred = useMutation(api.providerCredentials.remove);
+  const testKey = useAction(api.providers.testApiKey);
   const [showAddForm, setShowAddForm] = useState(false);
   const [credKey, setCredKey] = useState("api_key");
   const [credValue, setCredValue] = useState("");
   const [editingCredId, setEditingCredId] = useState<Id<"providerCredentials"> | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const hasCredentials = creds && creds.length > 0;
 
@@ -213,6 +217,17 @@ function ProviderCard({
         <span className="flex-1 font-mono text-sm text-foreground">
           {provider.name}
         </span>
+        {hasKey !== undefined && (
+          <span
+            className={`rounded-full px-2 py-0.5 font-mono text-[10px] ${
+              hasKey
+                ? "bg-green-500/10 text-green-600 dark:text-green-400"
+                : "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400"
+            }`}
+          >
+            {hasKey ? "key set" : "no key"}
+          </span>
+        )}
         <span className="rounded-full bg-accent/20 px-2 py-0.5 font-mono text-[10px] uppercase text-accent-foreground">
           {provider.type}
         </span>
@@ -320,6 +335,55 @@ function ProviderCard({
                   )}
                 </div>
               ))}
+
+              {hasCredentials && (
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    onClick={async () => {
+                      setTesting(true);
+                      setTestResult(null);
+                      try {
+                        const result = await testKey({ providerId: provider._id });
+                        setTestResult(result);
+                        setTimeout(() => setTestResult(null), result.success ? 4000 : 8000);
+                      } catch (err) {
+                        setTestResult({
+                          success: false,
+                          message: err instanceof Error ? err.message : "Test failed",
+                        });
+                        setTimeout(() => setTestResult(null), 8000);
+                      } finally {
+                        setTesting(false);
+                      }
+                    }}
+                    disabled={testing}
+                    className="flex items-center gap-1 rounded border border-border px-2 py-1 font-mono text-[10px] text-muted-foreground transition hover:border-foreground hover:text-foreground disabled:opacity-50"
+                  >
+                    {testing ? (
+                      <Loader2 size={11} className="animate-spin" />
+                    ) : (
+                      <Zap size={11} />
+                    )}
+                    {testing ? "Testing..." : "Test Key"}
+                  </button>
+                  {testResult && (
+                    <span
+                      className={`flex items-center gap-1 font-mono text-[10px] ${
+                        testResult.success
+                          ? "text-green-600 dark:text-green-400"
+                          : "text-destructive"
+                      }`}
+                    >
+                      {testResult.success ? (
+                        <CheckCircle2 size={11} />
+                      ) : (
+                        <AlertTriangle size={11} />
+                      )}
+                      {testResult.message}
+                    </span>
+                  )}
+                </div>
+              )}
 
               {!hasCredentials && !showAddForm && (
                 <button

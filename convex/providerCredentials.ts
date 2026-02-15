@@ -4,6 +4,18 @@ import { requireSuperAdmin } from "./lib/authorization";
 
 const MASKED = "********";
 
+export const hasKey = query({
+  args: { providerId: v.id("providers") },
+  handler: async (ctx, args) => {
+    await requireSuperAdmin(ctx);
+    const first = await ctx.db
+      .query("providerCredentials")
+      .withIndex("by_providerId", (q) => q.eq("providerId", args.providerId))
+      .first();
+    return first !== null;
+  },
+});
+
 export const list = query({
   args: { providerId: v.id("providers") },
   handler: async (ctx, args) => {

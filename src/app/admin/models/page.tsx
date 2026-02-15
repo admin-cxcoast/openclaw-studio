@@ -180,7 +180,16 @@ export default function ModelsPage() {
                   {provider.name}
                 </h2>
                 <div className="glass-panel overflow-hidden rounded-lg">
-                  <table className="w-full">
+                  <table className="w-full table-fixed">
+                    <colgroup>
+                      <col className="w-[22%]" />
+                      <col className="w-[22%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[16%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[10%]" />
+                    </colgroup>
                     <thead>
                       <tr className="border-b border-border text-left">
                         {[
@@ -207,10 +216,10 @@ export default function ModelsPage() {
                           key={m._id}
                           className="border-b border-border/50 last:border-0"
                         >
-                          <td className="px-4 py-2 font-mono text-xs text-foreground">
+                          <td className="truncate px-4 py-2 font-mono text-xs text-foreground" title={m.modelId}>
                             {m.modelId}
                           </td>
-                          <td className="px-4 py-2 font-mono text-sm text-foreground">
+                          <td className="truncate px-4 py-2 font-mono text-sm text-foreground" title={m.name}>
                             {m.name}
                           </td>
                           <td className="px-4 py-2 font-mono text-xs text-muted-foreground tabular-nums">

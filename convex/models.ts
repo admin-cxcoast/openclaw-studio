@@ -8,6 +8,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requireSuperAdmin } from "./lib/authorization";
+import { getModelMeta } from "./lib/modelCatalog";
 import type { Id } from "./_generated/dataModel";
 
 // ── Queries ──────────────────────────────────────────────
@@ -109,6 +110,18 @@ export const remove = mutation({
   },
 });
 
+/** Clear all models from the catalog. */
+export const _clearAll = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("models").collect();
+    for (const m of all) {
+      await ctx.db.delete(m._id);
+    }
+    return all.length;
+  },
+});
+
 // ── Internal helpers for syncCatalog action ──────────────
 
 /** Get enabled providers with their API keys (internal only). */
@@ -127,18 +140,23 @@ export const _getProvidersWithKeys = internalQuery({
 
     for (const p of providers) {
       if (!p.isEnabled) continue;
-      const cred = await ctx.db
+      const creds = await ctx.db
         .query("providerCredentials")
         .withIndex("by_providerId", (q) => q.eq("providerId", p._id))
-        .first();
-      if (!cred) continue;
+        .collect();
+      // Find the API key credential (prefer "api_key", fall back to first sensitive credential)
+      const apiKeyCred =
+        creds.find((c) => c.key === "api_key") ??
+        creds.find((c) => c.sensitive) ??
+        creds[0];
+      if (!apiKeyCred || !apiKeyCred.value || apiKeyCred.value === "********") continue;
       results.push({
         _id: p._id,
         slug: p.slug,
         name: p.name,
         type: p.type,
         baseUrl: p.baseUrl,
-        apiKey: cred.value,
+        apiKey: apiKeyCred.value,
       });
     }
     return results;
@@ -152,6 +170,14 @@ export const _upsertModel = internalMutation({
     modelId: v.string(),
     name: v.string(),
     contextWindow: v.optional(v.number()),
+    capabilities: v.optional(
+      v.object({
+        reasoning: v.optional(v.boolean()),
+        vision: v.optional(v.boolean()),
+        toolCalling: v.optional(v.boolean()),
+        streaming: v.optional(v.boolean()),
+      }),
+    ),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -166,6 +192,7 @@ export const _upsertModel = internalMutation({
       modelId: args.modelId,
       name: args.name,
       contextWindow: args.contextWindow,
+      capabilities: args.capabilities,
       isEnabled: true,
       updatedAt: Date.now(),
     });
@@ -181,7 +208,7 @@ const DEFAULT_API_URLS: Record<string, string> = {
   anthropic: "https://api.anthropic.com",
   openai: "https://api.openai.com",
   google: "https://generativelanguage.googleapis.com",
-  kimi: "https://api.moonshot.cn",
+  kimi: "https://api.kimi.com/coding",
   zai: "https://api.x.ai",
   minimax: "https://api.minimax.chat",
 };
@@ -303,11 +330,14 @@ export const syncCatalog = action({
           provider.baseUrl,
         );
         for (const model of models) {
+          // Enrich with curated metadata (context window, capabilities, display name)
+          const meta = getModelMeta(model.id);
           const wasAdded = await ctx.runMutation(internal.models._upsertModel, {
             providerId: provider._id,
             modelId: model.id,
-            name: model.name,
-            contextWindow: model.contextWindow,
+            name: meta?.name || model.name,
+            contextWindow: model.contextWindow ?? meta?.contextWindow,
+            capabilities: meta?.capabilities,
           });
           if (wasAdded) added++;
         }
