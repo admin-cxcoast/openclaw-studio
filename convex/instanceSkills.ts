@@ -50,6 +50,26 @@ export const assign = mutation({
       }
     }
 
+    // Check required env keys are configured
+    if (skill.envKeys?.length && orgId) {
+      const requiredKeys = skill.envKeys.filter((e) => e.required);
+      if (requiredKeys.length > 0) {
+        const configured = await ctx.db
+          .query("skillEnvValues")
+          .withIndex("by_skillId_orgId", (q) =>
+            q.eq("skillId", args.skillId).eq("orgId", orgId),
+          )
+          .collect();
+        const configuredKeys = new Set(configured.map((c) => c.key));
+        const missing = requiredKeys.filter((e) => !configuredKeys.has(e.key));
+        if (missing.length > 0) {
+          throw new Error(
+            `Missing required env keys: ${missing.map((e) => e.key).join(", ")}`,
+          );
+        }
+      }
+    }
+
     const existing = await ctx.db
       .query("instanceSkills")
       .withIndex("by_instanceId_skillId", (q) =>

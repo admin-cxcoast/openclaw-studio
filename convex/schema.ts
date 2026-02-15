@@ -222,6 +222,15 @@ export default defineSchema({
       ),
     ),
     dependencies: v.optional(v.string()),
+    envKeys: v.optional(
+      v.array(
+        v.object({
+          key: v.string(),
+          description: v.string(),
+          required: v.boolean(),
+        }),
+      ),
+    ),
     isEnabled: v.boolean(),
     plans: v.array(v.string()),
     updatedAt: v.number(),
@@ -241,6 +250,21 @@ export default defineSchema({
     .index("by_instanceId", ["instanceId"])
     .index("by_skillId", ["skillId"])
     .index("by_instanceId_skillId", ["instanceId", "skillId"]),
+
+  // ──────────────────────────────────────────────
+  // Skill environment values (org-scoped secrets per skill)
+  // ──────────────────────────────────────────────
+  skillEnvValues: defineTable({
+    skillId: v.id("skills"),
+    orgId: v.id("organizations"),
+    key: v.string(),
+    value: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_skillId", ["skillId"])
+    .index("by_orgId", ["orgId"])
+    .index("by_skillId_orgId", ["skillId", "orgId"])
+    .index("by_orgId_skillId_key", ["orgId", "skillId", "key"]),
 
   // ──────────────────────────────────────────────
   // Knowledge base (org-scoped)

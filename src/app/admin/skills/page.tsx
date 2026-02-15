@@ -12,6 +12,8 @@ import {
   Puzzle,
   Download,
   Loader2,
+  Key,
+  Search,
 } from "lucide-react";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
@@ -23,6 +25,12 @@ const categoryColors: Record<string, string> = {
   mcp: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
   prompt: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
   workflow: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+};
+
+const runtimeColors: Record<string, string> = {
+  node: "bg-green-500/10 text-green-600 dark:text-green-400",
+  python: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400",
+  none: "bg-muted text-muted-foreground",
 };
 
 type Category = (typeof CATEGORY_OPTIONS)[number];
@@ -39,12 +47,14 @@ export default function SkillsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [deleteTarget, setDeleteTarget] = useState<Id<"skills"> | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Import state
   const [showImport, setShowImport] = useState(false);
   const [importUrl, setImportUrl] = useState("");
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState("");
+  type EnvKeyDef = { key: string; description: string; required: boolean };
   type DiscoveredSkill = {
     name: string;
     displayName: string;
@@ -55,6 +65,7 @@ export default function SkillsPage() {
     sourceRepo?: string;
     entryPoint?: string;
     dependencies?: string;
+    envKeys?: EnvKeyDef[];
     filePath: string;
   };
   const [discovered, setDiscovered] = useState<DiscoveredSkill[]>([]);
@@ -168,6 +179,7 @@ export default function SkillsPage() {
           sourceRepo: s.sourceRepo,
           entryPoint: s.entryPoint,
           dependencies: s.dependencies,
+          envKeys: s.envKeys,
         });
       }
       setShowImport(false);
@@ -308,6 +320,9 @@ export default function SkillsPage() {
                       </div>
                       <div className="font-mono text-[10px] text-muted-foreground">
                         {s.name} &middot; {s.category} &middot; {s.filePath}
+                        {s.envKeys && s.envKeys.length > 0 && (
+                          <> &middot; {s.envKeys.length} env key{s.envKeys.length !== 1 ? "s" : ""}</>
+                        )}
                       </div>
                     </div>
                     <span
@@ -501,6 +516,20 @@ export default function SkillsPage() {
         </form>
       )}
 
+      {/* Search */}
+      <div className="relative">
+        <Search
+          size={14}
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+        />
+        <input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full rounded-md border border-border bg-input py-1.5 pl-9 pr-3 font-mono text-sm text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
+          placeholder="Search skills by name..."
+        />
+      </div>
+
       {/* Skills Table */}
       {skills === undefined ? (
         <div className="glass-panel rounded-lg px-4 py-8 text-center font-mono text-xs text-muted-foreground">
@@ -532,7 +561,16 @@ export default function SkillsPage() {
               </tr>
             </thead>
             <tbody>
-              {skills.map((skill) => {
+              {(searchQuery.trim()
+                ? skills.filter((s) => {
+                    const q = searchQuery.toLowerCase();
+                    return (
+                      s.name.toLowerCase().includes(q) ||
+                      s.displayName.toLowerCase().includes(q)
+                    );
+                  })
+                : skills
+              ).map((skill) => {
                 const isExpanded = expanded.has(skill._id);
                 return (
                   <SkillRow
@@ -590,6 +628,7 @@ function SkillRow({
     entryPoint?: string;
     content: string;
     dependencies?: string;
+    envKeys?: Array<{ key: string; description: string; required: boolean }>;
     isEnabled: boolean;
     plans: string[];
   };
@@ -606,6 +645,7 @@ function SkillRow({
     entryPoint?: string;
     content?: string;
     dependencies?: string;
+    envKeys?: Array<{ key: string; description: string; required: boolean }>;
     plans?: string[];
   }) => Promise<void>;
 }) {
@@ -629,6 +669,13 @@ function SkillRow({
   const [editPlans, setEditPlans] = useState<Set<string>>(
     new Set(skill.plans),
   );
+  const [editEnvKeys, setEditEnvKeys] = useState<
+    Array<{ key: string; description: string; required: boolean }>
+  >(skill.envKeys ?? []);
+  const [showAddEnvKey, setShowAddEnvKey] = useState(false);
+  const [newEnvKey, setNewEnvKey] = useState("");
+  const [newEnvDesc, setNewEnvDesc] = useState("");
+  const [newEnvRequired, setNewEnvRequired] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const toggleEditPlan = (plan: string) => {
@@ -651,6 +698,7 @@ function SkillRow({
         entryPoint: editEntryPoint || undefined,
         content: editContent,
         dependencies: editDependencies || undefined,
+        envKeys: editEnvKeys.length > 0 ? editEnvKeys : undefined,
         plans: [...editPlans],
       });
     } finally {
@@ -669,6 +717,7 @@ function SkillRow({
       setEditEntryPoint(skill.entryPoint ?? "");
       setEditContent(skill.content);
       setEditDependencies(skill.dependencies ?? "");
+      setEditEnvKeys(skill.envKeys ?? []);
       setEditPlans(new Set(skill.plans));
     }
     onToggle();
@@ -690,8 +739,14 @@ function SkillRow({
               )}
             </span>
             <div>
-              <div className="font-mono text-sm text-foreground">
+              <div className="flex items-center gap-2 font-mono text-sm text-foreground">
                 {skill.displayName}
+                {skill.envKeys && skill.envKeys.length > 0 && (
+                  <span className="flex items-center gap-0.5 rounded-full bg-orange-500/10 px-1.5 py-0.5 font-mono text-[9px] text-orange-600 dark:text-orange-400">
+                    <Key size={9} />
+                    {skill.envKeys.length}
+                  </span>
+                )}
               </div>
               <div className="font-mono text-[10px] text-muted-foreground">
                 {skill.name}
@@ -706,8 +761,12 @@ function SkillRow({
             {skill.category}
           </span>
         </td>
-        <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
-          {skill.runtime ?? "—"}
+        <td className="px-4 py-2">
+          <span
+            className={`inline-block rounded-full px-2 py-0.5 font-mono text-[10px] ${runtimeColors[skill.runtime ?? "none"] ?? "bg-muted text-muted-foreground"}`}
+          >
+            {skill.runtime ?? "none"}
+          </span>
         </td>
         <td className="px-4 py-2">
           <div className="flex flex-wrap gap-1">
@@ -750,7 +809,7 @@ function SkillRow({
       {isExpanded && (
         <tr className="border-b border-border/30 bg-muted/10">
           <td colSpan={6} className="px-8 py-4">
-            <div className="max-w-3xl space-y-3">
+            <div className="space-y-3">
               <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                 Edit Skill — {skill.name}
               </div>
@@ -839,7 +898,7 @@ function SkillRow({
                 <textarea
                   value={editDescription}
                   onChange={(e) => setEditDescription(e.target.value)}
-                  rows={2}
+                  rows={4}
                   className="rounded-md border border-border bg-input px-3 py-1.5 font-mono text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
@@ -852,7 +911,7 @@ function SkillRow({
                 <textarea
                   value={editContent}
                   onChange={(e) => setEditContent(e.target.value)}
-                  rows={8}
+                  rows={20}
                   className="rounded-md border border-border bg-input px-3 py-1.5 font-mono text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
@@ -868,6 +927,146 @@ function SkillRow({
                   className="rounded-md border border-border bg-input px-3 py-1.5 font-mono text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
                   placeholder="comma-separated: axios, cheerio"
                 />
+              </div>
+
+              {/* Environment Keys */}
+              <div className="flex flex-col gap-1">
+                <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                  Environment Keys
+                </label>
+                {editEnvKeys.length > 0 ? (
+                  <div className="rounded-md border border-border">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-border/50 text-left">
+                          <th className="px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+                            Key
+                          </th>
+                          <th className="px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+                            Description
+                          </th>
+                          <th className="px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+                            Required
+                          </th>
+                          <th className="w-8" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {editEnvKeys.map((ek, idx) => (
+                          <tr
+                            key={idx}
+                            className="border-b border-border/30 last:border-0"
+                          >
+                            <td className="px-3 py-1.5 font-mono text-xs text-foreground">
+                              {ek.key}
+                            </td>
+                            <td className="px-3 py-1.5 font-mono text-[10px] text-muted-foreground">
+                              {ek.description || "—"}
+                            </td>
+                            <td className="px-3 py-1.5 font-mono text-[10px] text-muted-foreground">
+                              {ek.required ? "Yes" : "No"}
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <button
+                                onClick={() =>
+                                  setEditEnvKeys((prev) =>
+                                    prev.filter((_, i) => i !== idx),
+                                  )
+                                }
+                                className="rounded p-0.5 text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 size={11} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="font-mono text-[10px] text-muted-foreground">
+                    No environment keys declared.
+                  </p>
+                )}
+
+                {showAddEnvKey ? (
+                  <div className="mt-1 flex items-end gap-2">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-mono text-[9px] text-muted-foreground">
+                        Key
+                      </span>
+                      <input
+                        value={newEnvKey}
+                        onChange={(e) =>
+                          setNewEnvKey(e.target.value.toUpperCase())
+                        }
+                        className="w-36 rounded border border-border bg-input px-2 py-1 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+                        placeholder="API_KEY"
+                        autoFocus
+                      />
+                    </div>
+                    <div className="flex flex-1 flex-col gap-0.5">
+                      <span className="font-mono text-[9px] text-muted-foreground">
+                        Description
+                      </span>
+                      <input
+                        value={newEnvDesc}
+                        onChange={(e) => setNewEnvDesc(e.target.value)}
+                        className="rounded border border-border bg-input px-2 py-1 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+                        placeholder="What this key is for"
+                      />
+                    </div>
+                    <label className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={newEnvRequired}
+                        onChange={(e) => setNewEnvRequired(e.target.checked)}
+                        className="accent-primary"
+                      />
+                      <span className="font-mono text-[9px] text-muted-foreground">
+                        Required
+                      </span>
+                    </label>
+                    <button
+                      onClick={() => {
+                        if (newEnvKey.trim()) {
+                          setEditEnvKeys((prev) => [
+                            ...prev,
+                            {
+                              key: newEnvKey.trim(),
+                              description: newEnvDesc.trim(),
+                              required: newEnvRequired,
+                            },
+                          ]);
+                          setNewEnvKey("");
+                          setNewEnvDesc("");
+                          setNewEnvRequired(true);
+                          setShowAddEnvKey(false);
+                        }
+                      }}
+                      className="rounded bg-primary px-2 py-1 font-mono text-[10px] text-primary-foreground hover:bg-primary/90"
+                    >
+                      Add
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowAddEnvKey(false);
+                        setNewEnvKey("");
+                        setNewEnvDesc("");
+                      }}
+                      className="rounded border border-border px-2 py-1 font-mono text-[10px] text-muted-foreground hover:bg-muted"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowAddEnvKey(true)}
+                    className="mt-1 flex w-fit items-center gap-1 rounded border border-dashed border-border px-2 py-1 font-mono text-[10px] text-muted-foreground transition hover:border-foreground hover:text-foreground"
+                  >
+                    <Plus size={11} /> Add Env Key
+                  </button>
+                )}
               </div>
 
               {/* Plans */}
