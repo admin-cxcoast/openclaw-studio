@@ -93,20 +93,32 @@ export default function UsersPage() {
     }
   };
 
-  const handleRoleChange = async (userId: Id<"users">, role: SystemRole) => {
+  // Map system role → org role for auto-sync
+  const systemToOrgRole = (role: SystemRole): OrgRole | null => {
+    if (role === "orgAdmin") return "admin";
+    if (role === "member") return "member";
+    return null; // superAdmin doesn't map to an org role
+  };
+
+  const handleRoleChange = async (
+    userId: Id<"users">,
+    role: SystemRole,
+    memberships?: { membershipId: Id<"orgMembers">; orgRole: string }[],
+  ) => {
     setRoleError(null);
     try {
       await updateRole({ userId, role });
+      // Auto-sync: update all org memberships to match
+      const targetOrgRole = systemToOrgRole(role);
+      if (targetOrgRole && memberships) {
+        await Promise.all(
+          memberships
+            .filter((m) => m.orgRole !== targetOrgRole)
+            .map((m) => updateOrgRole({ id: m.membershipId, role: targetOrgRole })),
+        );
+      }
     } catch (err) {
       setRoleError(err instanceof Error ? err.message : "Failed to change role");
-    }
-  };
-
-  const handleOrgRoleChange = async (membershipId: Id<"orgMembers">, role: OrgRole) => {
-    try {
-      await updateOrgRole({ id: membershipId, role });
-    } catch {
-      // shown by Convex
     }
   };
 
@@ -129,7 +141,8 @@ export default function UsersPage() {
     }
   };
 
-  // Count super admins for UI hints
+
+  // Count super admins for safety check
   const superAdminCount = users?.filter((u) => u.role === "superAdmin").length ?? 0;
 
   return (
@@ -207,7 +220,7 @@ export default function UsersPage() {
             </div>
             <div className="flex flex-col gap-1">
               <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                System Role
+                Role
               </label>
               <select
                 value={newRole}
@@ -384,7 +397,7 @@ export default function UsersPage() {
                       )}
                     </td>
 
-                    {/* System Role */}
+                    {/* System Role (auto-syncs to org role) */}
                     <td className="px-4 py-2.5">
                       <select
                         value={u.role}
@@ -392,6 +405,7 @@ export default function UsersPage() {
                           handleRoleChange(
                             u.userId,
                             e.target.value as SystemRole,
+                            u.memberships,
                           )
                         }
                         disabled={self || isOnlySuperAdmin}
@@ -410,7 +424,7 @@ export default function UsersPage() {
                       </select>
                     </td>
 
-                    {/* Organizations with inline org-role editing */}
+                    {/* Organizations (org role is auto-synced from system role) */}
                     <td className="px-4 py-2.5">
                       {u.memberships && u.memberships.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
@@ -420,21 +434,7 @@ export default function UsersPage() {
                               className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[10px] text-primary"
                             >
                               {m.orgName}
-                              <select
-                                value={m.orgRole}
-                                onChange={(e) =>
-                                  handleOrgRoleChange(
-                                    m.membershipId,
-                                    e.target.value as OrgRole,
-                                  )
-                                }
-                                className="border-none bg-transparent font-mono text-[10px] text-muted-foreground outline-none"
-                              >
-                                <option value="viewer">viewer</option>
-                                <option value="member">member</option>
-                                <option value="admin">admin</option>
-                                <option value="owner">owner</option>
-                              </select>
+                              <span className="text-muted-foreground">{m.orgRole}</span>
                               <button
                                 onClick={() =>
                                   setRemoveTarget({

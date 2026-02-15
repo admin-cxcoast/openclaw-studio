@@ -194,9 +194,15 @@ function ProviderCard({
     api.providerCredentials.list,
     expanded ? { providerId: provider._id } : "skip",
   );
-  // Reveal is handled inline via SensitiveField callback
+  const revealCred = useMutation(api.providerCredentials.revealMut);
+  const removeCred = useMutation(api.providerCredentials.remove);
+  const [showAddForm, setShowAddForm] = useState(false);
   const [credKey, setCredKey] = useState("api_key");
   const [credValue, setCredValue] = useState("");
+  const [editingCredId, setEditingCredId] = useState<Id<"providerCredentials"> | null>(null);
+  const [editValue, setEditValue] = useState("");
+
+  const hasCredentials = creds && creds.length > 0;
 
   return (
     <div className="glass-panel overflow-hidden rounded-lg">
@@ -243,48 +249,130 @@ function ProviderCard({
               {creds.map((c) => (
                 <div
                   key={c._id}
-                  className="mb-1 flex items-center gap-2 font-mono text-xs"
+                  className="mb-2 flex items-center gap-2 font-mono text-xs"
                 >
                   <span className="text-muted-foreground">{c.key}:</span>
-                  {c.sensitive ? (
-                    <SensitiveField
-                      maskedValue={c.value}
-                      onReveal={async () => {
-                        const res = await fetch(
-                          `/api/admin/reveal-credential?id=${c._id}`,
-                        );
-                        return res.ok ? res.text() : c.value;
-                      }}
-                    />
+                  {editingCredId === c._id ? (
+                    <div className="flex flex-1 items-center gap-2">
+                      <input
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        className="flex-1 rounded border border-border bg-input px-2 py-1 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+                        placeholder="new value"
+                        type="password"
+                        autoFocus
+                      />
+                      <button
+                        onClick={async () => {
+                          if (editValue.trim()) {
+                            await onSaveCredential(c.key, editValue);
+                          }
+                          setEditingCredId(null);
+                          setEditValue("");
+                        }}
+                        className="rounded bg-primary px-2 py-1 font-mono text-[10px] text-primary-foreground hover:bg-primary/90"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingCredId(null);
+                          setEditValue("");
+                        }}
+                        className="rounded border border-border px-2 py-1 font-mono text-[10px] text-muted-foreground hover:bg-muted"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   ) : (
-                    <code>{c.value}</code>
+                    <>
+                      {c.sensitive ? (
+                        <SensitiveField
+                          maskedValue={c.value}
+                          onReveal={async () => {
+                            const real = await revealCred({ id: c._id });
+                            return real;
+                          }}
+                        />
+                      ) : (
+                        <code>{c.value}</code>
+                      )}
+                      <button
+                        onClick={() => {
+                          setEditingCredId(c._id);
+                          setEditValue("");
+                        }}
+                        className="rounded border border-border px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                        title="Edit credential"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={async () => {
+                          await removeCred({ id: c._id });
+                        }}
+                        className="rounded p-0.5 text-muted-foreground transition hover:text-destructive"
+                        title="Delete credential"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </>
                   )}
                 </div>
               ))}
-              <div className="mt-2 flex items-end gap-2">
-                <input
-                  value={credKey}
-                  onChange={(e) => setCredKey(e.target.value)}
-                  className="rounded border border-border bg-input px-2 py-1 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
-                  placeholder="key"
-                />
-                <input
-                  value={credValue}
-                  onChange={(e) => setCredValue(e.target.value)}
-                  className="flex-1 rounded border border-border bg-input px-2 py-1 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
-                  placeholder="value"
-                  type="password"
-                />
+
+              {!hasCredentials && !showAddForm && (
                 <button
-                  onClick={async () => {
-                    await onSaveCredential(credKey, credValue);
+                  onClick={() => {
+                    setShowAddForm(true);
+                    setCredKey("api_key");
                     setCredValue("");
                   }}
-                  className="rounded bg-primary px-2 py-1 font-mono text-[10px] text-primary-foreground hover:bg-primary/90"
+                  className="mt-1 flex items-center gap-1 rounded border border-dashed border-border px-2 py-1 font-mono text-[10px] text-muted-foreground transition hover:border-foreground hover:text-foreground"
                 >
-                  Save
+                  <Plus size={11} /> Add API Key
                 </button>
-              </div>
+              )}
+
+              {!hasCredentials && showAddForm && (
+                <div className="mt-2 flex items-end gap-2">
+                  <input
+                    value={credKey}
+                    onChange={(e) => setCredKey(e.target.value)}
+                    className="rounded border border-border bg-input px-2 py-1 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+                    placeholder="key"
+                  />
+                  <input
+                    value={credValue}
+                    onChange={(e) => setCredValue(e.target.value)}
+                    className="flex-1 rounded border border-border bg-input px-2 py-1 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+                    placeholder="value"
+                    type="password"
+                  />
+                  <button
+                    onClick={async () => {
+                      if (credKey.trim() && credValue.trim()) {
+                        await onSaveCredential(credKey, credValue);
+                        setCredValue("");
+                        setCredKey("");
+                        setShowAddForm(false);
+                      }
+                    }}
+                    className="rounded bg-primary px-2 py-1 font-mono text-[10px] text-primary-foreground hover:bg-primary/90"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowAddForm(false);
+                      setCredValue("");
+                    }}
+                    className="rounded border border-border px-2 py-1 font-mono text-[10px] text-muted-foreground hover:bg-muted"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </>
           )}
         </div>

@@ -29,6 +29,17 @@ export const reveal = query({
   },
 });
 
+/** On-demand reveal callable via useMutation (no side effects, just reads). */
+export const revealMut = mutation({
+  args: { id: v.id("providerCredentials") },
+  handler: async (ctx, args) => {
+    await requireSuperAdmin(ctx);
+    const cred = await ctx.db.get(args.id);
+    if (!cred) throw new Error("Credential not found");
+    return cred.value;
+  },
+});
+
 export const upsert = mutation({
   args: {
     providerId: v.id("providers"),

@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { ConfirmDialog } from "@/features/admin/components/ConfirmDialog";
-import { Plus, Trash2, Brain, Eye, Wrench, Zap } from "lucide-react";
+import { Plus, RefreshCw, Trash2, Brain, Eye, Wrench, Zap } from "lucide-react";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
 export default function ModelsPage() {
@@ -13,9 +13,12 @@ export default function ModelsPage() {
   const createModel = useMutation(api.models.create);
   const updateModel = useMutation(api.models.update);
   const removeModel = useMutation(api.models.remove);
+  const syncCatalog = useAction(api.models.syncCatalog);
 
   const [showCreate, setShowCreate] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Id<"models"> | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
 
   // Create form
   const [newProviderId, setNewProviderId] = useState<string>("");
@@ -52,12 +55,46 @@ export default function ModelsPage() {
         <h1 className="console-title text-2xl text-foreground">
           Model Catalog
         </h1>
-        <button
-          onClick={() => setShowCreate(!showCreate)}
-          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 font-mono text-xs text-primary-foreground transition-colors hover:bg-primary/90"
-        >
-          <Plus size={14} /> Add Model
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={async () => {
+              setSyncing(true);
+              setSyncResult(null);
+              try {
+                const result = await syncCatalog();
+                const parts: string[] = [];
+                if (result.added > 0) {
+                  parts.push(`Added ${result.added} model${result.added > 1 ? "s" : ""}`);
+                } else {
+                  parts.push("Catalog is up to date");
+                }
+                if (result.errors.length > 0) {
+                  parts.push(`Errors: ${result.errors.join("; ")}`);
+                }
+                setSyncResult(parts.join(". "));
+                setTimeout(() => setSyncResult(null), result.errors.length > 0 ? 8000 : 3000);
+              } finally {
+                setSyncing(false);
+              }
+            }}
+            disabled={syncing}
+            className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 font-mono text-xs text-muted-foreground transition-colors hover:border-foreground hover:text-foreground disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
+            {syncing ? "Syncing..." : "Update Catalog"}
+          </button>
+          {syncResult && (
+            <span className={`max-w-xs truncate font-mono text-[10px] ${syncResult.includes("Errors") ? "text-destructive" : "text-primary"}`}>
+              {syncResult}
+            </span>
+          )}
+          <button
+            onClick={() => setShowCreate(!showCreate)}
+            className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 font-mono text-xs text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            <Plus size={14} /> Add Model
+          </button>
+        </div>
       </div>
 
       {showCreate && (
