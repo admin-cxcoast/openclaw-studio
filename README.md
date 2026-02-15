@@ -4,7 +4,19 @@
 
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/VEpdKJ9e)
 
-OpenClaw Studio is a Next.js dashboard for managing OpenClaw agents via the OpenClaw Gateway (WebSocket).
+OpenClaw Studio is a multi-tenant Next.js platform for managing OpenClaw agents, AI providers, skills, infrastructure, and knowledge — powered by Convex for real-time persistence and the OpenClaw Gateway for agent runtime.
+
+## Features
+
+- **Agent management**: fleet sidebar, chat interface, brain file editing, cron jobs, model/thinking controls.
+- **Admin panel**: manage users, organizations, AI providers, model catalog, skills, VPS instances, and system settings.
+- **Skill catalog**: import skills from GitHub repos, manage env keys, dependencies, and runtime detection. Plan-based availability.
+- **AI provider management**: configure providers (Anthropic, OpenAI, Google, ElevenLabs, etc.), test API keys, sync model catalogs.
+- **VPS & gateway management**: track VPS instances, discover gateways via SSH scanning, deploy new instances, manage org quotas.
+- **Knowledge base**: org-scoped entries with full-text search. Agent-proposed knowledge with approval workflow.
+- **Document management**: org-scoped documents with file attachments and full-text search.
+- **Multi-tenant**: organizations with plans (free/starter/pro/enterprise), roles, and resource quotas.
+- **Real-time**: Convex reactive database pushes live updates to all connected clients.
 
 ## How Studio Connects (Read This If You Use A Phone / Remote Host)
 
@@ -15,7 +27,7 @@ There are **two separate connections** involved:
 
 Important consequences:
 - The Gateway connection is made **from the browser**, not from the machine running `next dev`.
-- `ws://localhost:18789` (or `ws://127.0.0.1:18789`) means “connect to a gateway on the same device as the browser”.
+- `ws://localhost:18789` (or `ws://127.0.0.1:18789`) means "connect to a gateway on the same device as the browser".
   - If you open Studio on your phone, `localhost` and `127.0.0.1` are your phone, not your laptop/server.
 - Studio **persists** the Gateway URL/token under `~/.openclaw/openclaw-studio/settings.json`. Once set in the UI, this will be used on future runs and will override the default `NEXT_PUBLIC_GATEWAY_URL`.
 - If Studio is served over `https://`, the Gateway URL must be `wss://...` (browsers block `ws://` from `https://` pages).
@@ -24,6 +36,7 @@ Important consequences:
 
 - Node.js 18+ (LTS recommended)
 - OpenClaw Gateway running (local or remote)
+- Convex account (free tier) for database
 - Tailscale (optional, recommended for tailnet access)
 
 ## Quick start
@@ -98,12 +111,71 @@ npm install
 npm run dev
 ```
 
+### Convex setup
+
+Studio uses Convex as its primary database. To set up:
+
+```bash
+npx convex dev
+```
+
+This will prompt you to create a Convex project and generate `.env.local` with `CONVEX_DEPLOYMENT` and `NEXT_PUBLIC_CONVEX_URL`.
+
+Run Convex dev server alongside Next.js:
+```bash
+# Terminal 1
+npm run dev
+
+# Terminal 2
+npm run dev:convex
+```
+
 ## Configuration
 
 Paths and key settings:
 - OpenClaw config: `~/.openclaw/openclaw.json` (or `OPENCLAW_CONFIG_PATH` / `OPENCLAW_STATE_DIR`)
 - Studio settings: `~/.openclaw/openclaw-studio/settings.json`
+- Convex config: `.env.local` (`CONVEX_DEPLOYMENT` + `NEXT_PUBLIC_CONVEX_URL`)
 - Default gateway URL: `ws://localhost:18789` (override via Studio Settings or `NEXT_PUBLIC_GATEWAY_URL`)
+
+### Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `NEXT_PUBLIC_CONVEX_URL` | Convex deployment URL |
+| `NEXT_PUBLIC_GATEWAY_URL` | Default gateway WebSocket URL |
+| `STUDIO_UPSTREAM_GATEWAY_URL` | Server-side gateway URL override |
+| `STUDIO_UPSTREAM_GATEWAY_TOKEN` | Server-side gateway token override |
+| `STUDIO_ACCESS_TOKEN` | Optional access gate token |
+
+## Admin panel
+
+The admin panel at `/admin` provides platform management for super admins:
+
+- **Users**: create users, assign roles, manage org memberships.
+- **Organizations**: create orgs with plans, manage settings and quotas.
+- **Providers**: add AI providers (Anthropic, OpenAI, Google, ElevenLabs, etc.), configure API keys, test connectivity.
+- **Models**: browse and sync model catalog from provider APIs, manage capabilities metadata.
+- **Skills**: import from GitHub repos, manage env keys and dependencies, enable/disable per plan.
+- **VPS**: track servers, sync from Hostinger, configure SSH access, discover gateway instances.
+- **Settings**: manage system-wide configuration by category.
+
+## Skills
+
+Skills are imported from GitHub repositories containing `SKILL.md` files:
+
+```bash
+# In the admin panel, use "Import from GitHub" with a repo URL like:
+https://github.com/openclaw/skills
+https://github.com/anthropics/skills
+```
+
+Skills support:
+- **Categories**: `mcp` (tool servers), `prompt` (instruction guides), `workflow` (multi-step chains).
+- **Runtime detection**: automatically infers `node`/`python`/`none` from metadata and content patterns.
+- **Environment keys**: declared in metadata or discovered from content `export` patterns.
+- **Dependencies**: extracted from metadata `install` entries and body `npm install`/`pip install` patterns.
+- **Plan gating**: skills can be restricted to specific org plans.
 
 ## Cron jobs in Agent Settings
 
@@ -122,8 +194,18 @@ Paths and key settings:
 - **UI loads but no agents show up** (common when browsing from a phone):
   - Check the Gateway URL shown in Studio. If it is `ws://localhost:18789`, that will only work when browsing Studio on the same machine running the gateway (or via an SSH tunnel).
   - If you set a Gateway URL once, it is persisted in `~/.openclaw/openclaw-studio/settings.json`. Update it in the UI (or delete/reset the file) if you moved hosts.
+- **Convex errors**: Ensure `npx convex dev` is running and `.env.local` contains valid `NEXT_PUBLIC_CONVEX_URL`.
 - **Still stuck**: Run `npx -y openclaw-studio@latest doctor --check` (and `--fix --force-settings` to safely rewrite Studio settings).
 
 ## Architecture
 
-See `ARCHITECTURE.md` for details on modules and data flow.
+See `ARCHITECTURE.md` for details on modules, data flow, Convex schema, and design decisions.
+
+## Tech stack
+
+- **Frontend**: Next.js 16, React 19, Tailwind CSS 4, Lucide icons
+- **Backend**: Convex (reactive database, auth, server functions)
+- **Agent runtime**: OpenClaw Gateway (WebSocket)
+- **Auth**: @convex-dev/auth with password provider
+- **Infrastructure**: Custom Node server with WebSocket proxy, SSH-based VPS management
+- **Testing**: Vitest (unit), Playwright (e2e)

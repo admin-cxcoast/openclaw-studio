@@ -1,23 +1,25 @@
 # Architecture
 
 ## High-level overview & goals
-OpenClaw Studio is a gateway-first, single-user Next.js App Router UI for managing OpenClaw agents. It provides:
-- A focused UI with fleet list, primary agent panel, and inspect sidebar.
+OpenClaw Studio is a multi-tenant Next.js App Router platform for managing OpenClaw agents, infrastructure, and AI resources. It provides:
+- A focused UI with fleet list, primary agent panel, and inspect sidebar for real-time agent management.
+- A **Convex** reactive database as the primary persistence layer for organizations, users, providers, models, skills, knowledge, documents, deployments, VPS/gateway instances, and system settings.
 - Local persistence for gateway connection + focused-view preferences via a JSON settings file.
 - A same-origin WebSocket bridge (`/api/gateway/ws`) from browser to the upstream OpenClaw gateway.
 - Gateway-backed edits for agent config and agent files.
-- **Convex** reactive database for persistent, real-time data beyond gateway state.
+- A super-admin panel (`/admin`) for platform-wide management of users, organizations, providers, models, skills, VPS instances, and system settings.
+- An org-member dashboard for knowledge management, document storage, and instance deployment.
 
 Primary goals:
 - **Gateway-first**: agents, sessions, and config live in the gateway; Studio stores only UI settings.
+- **Convex for persistence**: structured data (orgs, users, providers, models, skills, knowledge, documents, deployments, VPS/gateway instances, settings) lives in Convex.
+- **Multi-tenant**: organizations with plans, roles, and resource quotas.
 - **Remote-friendly**: tailnet/remote gateways are first-class.
-- **Clear boundaries**: client UI vs server routes vs external gateway/config.
-- **Predictable state**: gateway is source of truth; local settings only for focused preferences + connection.
-- **Convex for persistence**: structured data that needs to survive beyond gateway sessions lives in Convex.
+- **Clear boundaries**: client UI vs server routes vs external gateway/config vs Convex backend.
+- **Predictable state**: gateway is source of truth for agent runtime; Convex is source of truth for platform data; local settings only for focused preferences + connection.
 - **Maintainability**: feature-focused modules, minimal abstractions.
 
 Non-goals:
-- Multi-tenant or multi-user concurrency.
 - Server-side rendering of data from external services.
 
 ## Architectural style
@@ -25,144 +27,229 @@ Non-goals:
 - UI components + feature state in `src/features`.
 - Shared utilities and adapters in `src/lib`.
 - Server-side route handlers under `src/app/api`.
+- Convex backend functions under `convex/`.
+- Admin panel under `src/app/admin`.
 
 This keeps feature cohesion high while preserving a clear client/server boundary.
 
 ## Main modules / bounded contexts
-- **Focused agent UI** (`src/features/agents`): focused agent panel, fleet sidebar, inspect panel, and local in-memory state + actions. The fleet sidebar includes a `New Agent` action that calls gateway config patching and works for both local and remote gateways. Agents render a status-first summary and latest-update preview driven by gateway events. Per-agent runtime controls (`model`, `thinking`) live in the chat header (`AgentChatPanel`), active runs can be stopped from the chat composer via `chat.abort`, while settings sidebar actions are focused on rename, display toggles, new session, cron list/run/delete/create, and delete (`AgentSettingsPanel`). Cron creation now uses a guided modal with template-first onboarding and a review step, scoped to the currently selected settings agent. Gateway event classification (`presence`/`heartbeat` summary refresh and `chat`/`agent` runtime streams) is centralized in bridge helpers (`src/features/agents/state/runtimeEventBridge.ts`) and consumed from one gateway subscription path in `src/app/page.tsx`. Higher-level orchestration that used to live inline in `src/app/page.tsx` is now factored into testable operations under `src/features/agents/operations/` (fleet hydration in `agentFleetHydration.ts`, chat send in `chatSendOperation.ts`, cron create in `cronCreateOperation.ts`, and config mutation queue + restart blocking in `useConfigMutationQueue.ts` and `useGatewayRestartBlock.ts`). Session setting mutations (model/thinking) are centralized in `src/features/agents/state/sessionSettingsMutations.ts` so optimistic state updates and sync/error behavior stay aligned. Studio fetches a capped amount of chat history by default (currently 200 messages) and exposes a “Load more” affordance when the transcript may be truncated. Disconnected startup now uses a status-first `GatewayConnectScreen` with a local command copy affordance, a collapsible remote form, section-scoped errors with contextual guidance, and an interactive retry indicator with stop control. The connect screen stays mounted across connection attempts (no unmount/remount cycle).
-- **Studio settings** (`src/lib/studio`, `src/app/api/studio`): local settings store for gateway URL/token and focused preferences (`src/lib/studio/settings.ts`, `src/app/api/studio/route.ts`). `src/lib/studio/coordinator.ts` now owns both the `/api/studio` transport helpers and shared client-side load/patch scheduling for gateway and focused settings.
-- **Gateway** (`src/lib/gateway`): WebSocket client for agent runtime (frames, connect, request/response). Session settings sync transport (`sessions.patch`) is centralized in `src/lib/gateway/GatewayClient.ts`. The OpenClaw control UI client is vendored in `src/lib/gateway/openclaw/GatewayBrowserClient.ts` with a sync script at `scripts/sync-openclaw-gateway-client.ts`.
-- **Studio gateway proxy server** (`server/index.js`, `server/gateway-proxy.js`, `server/studio-settings.js`): custom Next server that terminates browser WS at `/api/gateway/ws`, loads upstream gateway URL/token server-side, injects auth token when needed, and forwards frames to the upstream gateway.
-- **Gateway-backed config + agent-file edits** (`src/lib/gateway/agentConfig.ts`, `src/lib/gateway/agentFiles.ts`, `src/features/agents/components/AgentInspectPanels.tsx`): agent create/rename/heartbeat/delete via `config.get` + `config.patch`, agent file read/write via gateway WebSocket methods (`agents.files.get`, `agents.files.set`).
-- **Heartbeat helpers** (`src/lib/gateway/agentConfig.ts`): resolves per-agent heartbeat state (enabled + schedule) by combining gateway config (`config.get`) and status (`status`) for the settings panel, triggers `wake` for “run now”, and owns the heartbeat type shapes and gateway config mutation helpers.
-- **Session lifecycle actions** (`src/features/agents/state/store.tsx`, `src/app/page.tsx`): per-agent “New session” calls gateway `sessions.reset` on the current session key and resets local runtime transcript state.
-- **Local OpenClaw config + paths** (`src/lib/clawdbot`): state/config path resolution with `OPENCLAW_*` env overrides (`src/lib/clawdbot/paths.ts`). Gateway URL/token in Studio are sourced from studio settings.
-- **Shared agent config-list helpers** (`src/lib/gateway/agentConfig.ts`): pure `agents.list` read/write/upsert helpers used by gateway config patching to keep list-shape semantics aligned.
-- **Task control plane** (`src/app/control-plane`, `src/app/api/task-control-plane`, `src/lib/task-control-plane/read-model.ts`): a read-only status board driven by Beads (`br`) JSON output. The API route is the server boundary for invoking `br` and parsing its JSON.
-- **Convex database** (`convex/`, `src/providers/ConvexClientProvider.tsx`): reactive database-as-a-service for persistent, real-time data. Schema defined in `convex/schema.ts`, server functions (queries/mutations/actions) in `convex/`. Auto-generated types in `convex/_generated/`. The `ConvexClientProvider` wraps the app in `src/app/layout.tsx` and provides a singleton `ConvexReactClient` connected to the deployment specified by `NEXT_PUBLIC_CONVEX_URL`.
-- **Shared utilities** (`src/lib/*`): env, ids, names, avatars, message parsing/normalization (including tool-line formatting) in `src/lib/text/message-extract.ts`, cron types + selector helpers + gateway call helpers in `src/lib/cron/types.ts`, logging, filesystem helpers.
+
+### Core platform (Convex)
+- **Users & auth** (`convex/auth.ts`, `convex/users.ts`, `convex/sessionContext.ts`): Convex Auth with password provider. User profiles with roles (`superAdmin`/`orgAdmin`/`member`). Session context aggregates user + profile + orgs + gateways.
+- **Organizations** (`convex/organizations.ts`, `convex/orgMembers.ts`): multi-tenant orgs with plans (`free`/`starter`/`pro`/`enterprise`), statuses, settings (maxAgents, maxVps, maxInstances, enabledSkillCategories, features). Org members with roles (`owner`/`admin`/`member`/`viewer`).
+- **Providers** (`convex/providers.ts`, `convex/providerCredentials.ts`): AI provider definitions (`llm`/`tts`/`stt`/`image`). Per-provider API credentials with sensitive value masking. API key testing (Anthropic, OpenAI, Google, ElevenLabs, Kimi, Zai, Minimax).
+- **Models** (`convex/models.ts`, `convex/lib/modelCatalog.ts`): AI model catalog with capabilities (reasoning, vision, toolCalling, streaming), context windows, costs. Dynamic sync from provider APIs via `syncCatalog` action. Metadata enrichment in `modelCatalog.ts`.
+- **Skills** (`convex/skills.ts`): global skill catalog with categories (`mcp`/`prompt`/`workflow`), runtimes (`node`/`python`/`none`), dependencies, envKeys (declared required environment variables). Plan-based availability. Import from GitHub repos via SKILL.md parsing. Internal backfill mutation for metadata extraction from skill content (envKeys from `metadata.openclaw.requires.env` + body `export` patterns, dependencies from `install[].package/formula/module` + body `npm/pip install` patterns, runtime from metadata bins + body content patterns).
+- **Skill env values** (`convex/skillEnvValues.ts`): org-scoped secret values for skill-declared env keys. Masked list, reveal, upsert, remove. Used by instance assignment validation.
+- **Instance skills** (`convex/instanceSkills.ts`): skill-to-gateway-instance assignments. Validates org plan access and required env key configuration before assignment.
+- **Knowledge** (`convex/knowledge.ts`, `convex/knowledgeProposals.ts`): org-scoped knowledge base with full-text search. Agent-proposed entries with pending/approved/rejected workflow.
+- **Documents** (`convex/documents.ts`): org-scoped documents with types (`general`/`spec`/`runbook`/`reference`), tags, full-text search, optional file attachments via Convex storage.
+- **VPS instances** (`convex/vpsInstances.ts`): physical VPS server records. Hostinger API integration for VM discovery/sync.
+- **Gateway instances** (`convex/gatewayInstances.ts`): OpenClaw instances on VPS (junction: VPS + org). Tracks port, token, URL, status, agent count, deployment reference.
+- **Org VPS access** (`convex/orgVpsAccess.ts`): org-to-VPS access assignments with instance quotas.
+- **Deployments** (`convex/deployments.ts`): provisioning lifecycle with real-time step tracking (queued/provisioning/running/failed/cancelled). Config includes model selection, skill assignments, brain files, role template, agent identity, gateway auth.
+- **System settings** (`convex/systemSettings.ts`): key-value settings by category (`general`/`ai`/`agent`/`identity`/`vps`/`security`) with sensitive masking.
+- **Authorization** (`convex/lib/authorization.ts`): `requireAuth`, `requireSuperAdmin`, `requireOrgAccess` helpers. Org access checks member role and supports superAdmin override.
+
+### Admin panel (`src/app/admin`)
+- **Dashboard** (`/admin`): overview stats.
+- **Users** (`/admin/users`): list, create, update roles.
+- **Organizations** (`/admin/organizations`): CRUD, plan/status management.
+- **Providers** (`/admin/providers`): CRUD, API key management with test button and status badges.
+- **Models** (`/admin/models`): CRUD, sync from provider APIs.
+- **Skills** (`/admin/skills`): CRUD, GitHub import, enable/disable, plan availability, env keys editor, search, runtime/category badges.
+- **VPS** (`/admin/vps`): CRUD, Hostinger sync, SSH details, tag management.
+- **Settings** (`/admin/settings`): category-based key-value pairs.
+- **Shared components** (`src/features/admin/components`): `AdminHeader`, `AdminSidebar`, `ConfirmDialog`, `SensitiveField`, `StatsCard`.
+
+### Focused agent UI (`src/features/agents`)
+- Fleet sidebar with agent list, status, create action.
+- Primary agent panel with chat interface, model/thinking controls.
+- Inspect panels for brain files, cron jobs, settings.
+- Gateway connect screen with retry controls.
+- Deploy instance modal.
+- State management via Zustand store (`store.tsx`).
+- Operations: fleet hydration, chat send, cron create, agent delete, config mutation queue.
+- Runtime event bridge classifies gateway events (`presence`/`heartbeat`/`chat`/`agent`).
+- Session settings mutations with optimistic state.
+
+### Knowledge & documents
+- **Knowledge panel** (`src/features/knowledge`): browse, search, create entries, manage proposals.
+- **Documents panel** (`src/features/documents`): browse, search, create with file attachments.
+
+### Studio settings (`src/lib/studio`, `src/app/api/studio`)
+- Local settings store for gateway URL/token and focused preferences (`settings.json` under `~/.openclaw/openclaw-studio/`).
+- `coordinator.ts` owns both transport helpers and client-side load/patch scheduling.
+
+### Gateway (`src/lib/gateway`)
+- WebSocket client for agent runtime (frames, connect, request/response).
+- Session settings sync via `sessions.patch`.
+- Vendored OpenClaw control UI client (`GatewayBrowserClient.ts`).
+- Model capabilities + context window metadata.
+
+### Studio gateway proxy server (`server/`)
+- `index.js`: custom Node server wrapping Next.js with WS proxy and access gate.
+- `gateway-proxy.js`: bridges `/api/gateway/ws` to upstream gateway with server-side token injection.
+- `access-gate.js`: optional `STUDIO_ACCESS_TOKEN` authentication.
+- `studio-settings.js`: server-side settings loader.
+
+### API routes (`src/app/api`)
+- `POST /api/studio` — load/save studio settings.
+- `GET /api/path-suggestions` — autocomplete file paths.
+- `POST /api/org/provision-gateway` — deploy OpenClaw instance on VPS via SSH.
+- `PUT /api/org/manage-gateway` — update running gateway instance config.
+- `POST /api/org/knowledge` — create knowledge entries.
+- `POST /api/org/knowledge/propose` — agent proposes knowledge (Bearer token auth).
+- `POST /api/gateway/agent-state` — trash/restore agent state locally or over SSH.
+- `GET /api/admin/scan-vps` — SSH discovery of OpenClaw instances on VPS.
+- `POST /api/admin/skills/import` — import skills from GitHub repo (discovers SKILL.md files, parses YAML frontmatter + metadata JSON, extracts envKeys/dependencies/runtime).
+- `POST /api/admin/ssh-keys/setup` — generate SSH key for studio.
+- `POST /api/admin/ssh-keys/deploy` — deploy SSH key to VPS.
+- `GET /api/admin/ssh-keys/diagnose` — diagnose SSH connectivity.
+- `/api/task-control-plane` — Beads CLI integration (list, show, priority).
+
+### Provisioning (`src/lib/provisioning`)
+- `config-generator.ts`: generate `openclaw.json` + auth profiles for new instances.
+- `port-allocator.ts`: allocate free ports on VPS.
+- `validation.ts`: instance name + path validation.
+
+### Task control plane (`src/app/control-plane`, `src/lib/task-control-plane`)
+- Read-only Kanban board driven by Beads (`br`) JSON output.
+- Local or SSH execution of Beads CLI.
 
 ## Directory layout (top-level)
 - `src/app`: Next.js App Router pages, layouts, global styles, and API routes.
-- `src/features`: feature-first UI modules (currently focused agent-management components under `features/agents`).
+- `src/app/admin`: Super-admin panel pages and layout.
+- `src/features`: feature-first UI modules (agents, admin, knowledge, documents, task-control-plane).
 - `src/lib`: domain utilities, adapters, API clients, and shared logic.
-- `src/providers`: React context providers (e.g. `ConvexClientProvider`).
-- `src/components`: shared UI components (minimal use today).
+- `src/providers`: React context providers (`ConvexClientProvider`).
+- `src/components`: shared UI components.
 - `src/styles`: shared styling assets.
-- `convex/`: Convex backend — schema, functions, and auto-generated types (`_generated/`).
+- `convex/`: Convex backend — schema, functions, auth, migrations, and auto-generated types (`_generated/`).
+- `convex/lib/`: shared backend helpers (authorization, model catalog).
 - `server`: custom Node server and WS proxy for gateway bridging + access gate.
 - `public`: static assets.
 - `tests`, `playwright.config.ts`, `vitest.config.ts`: automated testing.
 
 ## Data flow & key boundaries
-### 1) Studio settings + focused preferences
-- **Source of truth**: JSON settings file at `~/.openclaw/openclaw-studio/settings.json` (resolved via `resolveStateDir`, with legacy fallbacks in `src/lib/clawdbot/paths.ts`). Settings store the gateway URL/token plus per-gateway focused preferences.
-- **Server boundary**: `src/app/api/studio/route.ts` loads/saves settings by reading and writing `openclaw-studio/settings.json` under the resolved state dir.
-- **Client boundary**: `useGatewayConnection` and focused/session flows in `src/app/page.tsx` use a shared `StudioSettingsCoordinator` to load settings and coalesce debounced `/api/studio` patch writes. The hook exposes `retryState`, `connectAttemptCount`, and `stopRetrying` alongside existing connection state for the connect screen's retry control and first-load UX.
 
-Flow:
-1. UI loads settings from `/api/studio`.
-2. Gateway URL/token seed the connection panel and auto-connect.
-3. Focused filter + selected agent are loaded for the current gateway.
-4. UI schedules focused and gateway patches through the coordinator; both paths converge on `/api/studio`.
+### 1) Convex (reactive database — primary persistence)
+- **Client boundary**: `ConvexClientProvider` in `src/providers/ConvexClientProvider.tsx` creates a singleton `ConvexReactClient` and wraps the app tree via `ConvexProvider`. React components use `useQuery`/`useMutation` hooks from `convex/react` to read/write data. Auth state from `@convex-dev/auth`.
+- **Server boundary**: Convex functions (queries, mutations, actions) live in `convex/` and run on the Convex cloud. Schema defined in `convex/schema.ts` with 17 application tables + 4 auth tables.
+- **Dev workflow**: run `npm run dev:convex` alongside `npm run dev` to watch and push Convex function changes.
 
-### 2) Agent runtime (gateway)
-- **Client-side boundary**: `GatewayClient` connects to Studio-origin `/api/gateway/ws` via `resolveStudioProxyGatewayUrl()` and wraps the vendored `GatewayBrowserClient`.
-- **Server-side boundary**: custom server proxy (`server/gateway-proxy.js`) is in the middle for upstream URL/token resolution and connect-frame token injection.
-
-Flow:
-1. UI loads gateway URL/token from `/api/studio` (defaulting to `NEXT_PUBLIC_GATEWAY_URL`, or `ws://localhost:18789` when that env var is unset).
-2. Browser opens WS to Studio `/api/gateway/ws` (`ws://` on `http`, `wss://` on `https`).
-3. Proxy loads upstream URL/token from Studio settings on the server and opens upstream WS.
-4. Proxy forwards `connect` and subsequent frames; it injects auth token server-side if the connect frame has none.
-5. UI requests `agents.list` and builds session keys via `buildAgentMainSessionKey(agentId, mainKey)`.
-6. A single gateway listener in `src/app/page.tsx` classifies `presence`/`heartbeat`/`chat`/`agent` events through `classifyGatewayEventKind` in `src/features/agents/state/runtimeEventBridge.ts`, then routes to summary-refresh or runtime stream handling.
-7. Agent store updates agent output/state.
-
-### 3) Agent config + agent files
-- **Agent files**: `AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `USER.md`, `TOOLS.md`, `HEARTBEAT.md`, `MEMORY.md`.
-- **Create + heartbeat + rename**: stored in the gateway config and updated via `config.get` + `config.patch`.
-
-Flow:
-1. UI creates/renames/deletes agents and requests heartbeat data via gateway `config.get` + `config.patch` (`src/lib/gateway/agentConfig.ts`).
-2. Agent file edits call gateway WebSocket methods `agents.files.get` and `agents.files.set` via `GatewayClient.call` through `readGatewayAgentFile` / `writeGatewayAgentFile` (`src/lib/gateway/agentFiles.ts`), used by the Brain panel in `src/features/agents/components/AgentInspectPanels.tsx`.
-3. UI reflects persisted state returned by the gateway.
-
-### 4) Cron summaries + settings controls
-- **Cron**: the UI calls gateway cron methods directly (`cron.list`, `cron.add`, `cron.run`, `cron.remove`) for latest-update previews and agent settings controls.
-- **Create flow**: `AgentSettingsPanel` collects a `CronCreateDraft` in a modal wizard, `buildCronJobCreateInput` maps it to a gateway-safe payload (`src/lib/cron/createPayloadBuilder.ts`), and `performCronCreateFlow` executes create + scoped refresh (`src/features/agents/operations/cronCreateOperation.ts`).
-
-### 5) Session settings synchronization
-- **UI boundary**: `AgentChatPanel` emits model/thinking callbacks from the agent header; `src/app/page.tsx` delegates both through one mutation helper.
-- **Mutation boundary**: `applySessionSettingMutation` in `src/features/agents/state/sessionSettingsMutations.ts` owns optimistic store updates, `sessionCreated` guard logic, sync success updates, and user-facing failure lines.
-- **Transport boundary**: `syncGatewaySessionSettings` in `src/lib/gateway/GatewayClient.ts` is the only client-side builder/invoker for `sessions.patch` payloads.
-
-### 6) Convex (reactive database)
-- **Client boundary**: `ConvexClientProvider` in `src/providers/ConvexClientProvider.tsx` creates a singleton `ConvexReactClient` and wraps the app tree via `ConvexProvider`. React components use `useQuery`/`useMutation` hooks from `convex/react` to read/write data.
-- **Server boundary**: Convex functions (queries, mutations, actions) live in `convex/` and run on the Convex cloud. Schema is defined in `convex/schema.ts`.
-- **Dev workflow**: run `npm run dev:convex` alongside `npm run dev` to watch and push Convex function changes in development.
+Tables: `userProfiles`, `organizations`, `orgMembers`, `vpsInstances`, `gatewayInstances`, `providers`, `providerCredentials`, `models`, `skills`, `instanceSkills`, `skillEnvValues`, `knowledge`, `knowledgeProposals`, `documents`, `orgVpsAccess`, `deployments`, `systemSettings` (+ auth tables: `users`, `accounts`, `sessions`, `verificationCodes`).
 
 Flow:
 1. `ConvexReactClient` connects to the Convex deployment via `NEXT_PUBLIC_CONVEX_URL`.
 2. React components subscribe to queries — Convex pushes real-time updates over WebSocket.
-3. Mutations are called from the client and execute transactionally on the Convex server.
-4. Schema changes and function deploys happen via `npx convex dev` (dev) or `npx convex deploy` (prod).
+3. Mutations execute transactionally on the Convex server.
+4. Actions (e.g. `syncCatalog`, `testApiKey`, `syncVpsFromHostinger`) can call external APIs.
+5. Schema changes and function deploys happen via `npx convex dev` (dev) or `npx convex deploy` (prod).
 
-### 7) Task control plane (Beads)
-- **UI boundary**: the `/control-plane` page fetches `TaskControlPlaneResponse` from `/api/task-control-plane`.
-- **Server boundary**: `src/app/api/task-control-plane/route.ts` runs the Beads CLI (`br`) via `node:child_process.spawnSync`, parses JSON output, and maps errors to HTTP 400 with a “Beads workspace not initialized…” message for init/workspace errors, and HTTP 502 for other failures. If `OPENCLAW_TASK_CONTROL_PLANE_GATEWAY_BEADS_DIR` is set, the route runs `br ... --json` on the gateway host over SSH (host derived from the configured gateway URL unless `OPENCLAW_TASK_CONTROL_PLANE_SSH_TARGET` is set).
-- **Read-model boundary**: `src/lib/task-control-plane/read-model.ts` converts raw Beads lists into the UI snapshot shape.
+### 2) Studio settings + focused preferences
+- **Source of truth**: JSON settings file at `~/.openclaw/openclaw-studio/settings.json`.
+- **Server boundary**: `src/app/api/studio/route.ts` loads/saves settings.
+- **Client boundary**: `StudioSettingsCoordinator` in `src/lib/studio/coordinator.ts` manages load/debounced-patch scheduling.
+
+### 3) Agent runtime (gateway)
+- **Client-side boundary**: `GatewayClient` connects to Studio-origin `/api/gateway/ws`.
+- **Server-side boundary**: custom server proxy (`server/gateway-proxy.js`) handles upstream URL/token resolution and connect-frame token injection.
+
+Flow:
+1. UI loads gateway URL/token from `/api/studio`.
+2. Browser opens WS to Studio `/api/gateway/ws`.
+3. Proxy forwards to upstream gateway with server-side auth injection.
+4. A single gateway listener classifies events through `runtimeEventBridge.ts`.
+5. Agent store updates agent output/state.
+
+### 4) Agent config + agent files
+- **Agent files**: `AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `USER.md`, `TOOLS.md`, `HEARTBEAT.md`, `MEMORY.md`.
+- **Create + heartbeat + rename**: stored in gateway config via `config.get` + `config.patch`.
+- **File edits**: via gateway WebSocket `agents.files.get` / `agents.files.set`.
+
+### 5) Skills + instance assignment
+- **Skill catalog**: global skills stored in Convex, imported from GitHub repos via `/api/admin/skills/import`.
+- **Import pipeline**: discovers SKILL.md files in repo tree, parses YAML frontmatter, extracts metadata JSON (`openclaw.requires.env`, `openclaw.install`, `openclaw.requires.bins`), scans body for `export KEY=`/`npm install`/`pip install` patterns.
+- **Instance assignment**: validates org plan access + required env key configuration before allowing skill assignment to a gateway instance.
+- **Org env values**: per-org secret values for skill-declared env keys (masked in UI, revealed on demand).
+
+### 6) Provider credentials + model catalog
+- **Providers**: system-wide AI provider definitions with type, base URL, OAuth support.
+- **Credentials**: per-provider API keys, sensitive values masked in list queries, revealed on demand.
+- **Model catalog**: synced from provider APIs (Anthropic, OpenAI, Google, etc.) via `syncCatalog` action. Enriched with capabilities metadata from `modelCatalog.ts`.
+- **API key testing**: lightweight test calls per provider type.
+
+### 7) VPS + gateway instance management
+- **VPS instances**: physical servers tracked with IP, SSH access, capacity, tags.
+- **Hostinger integration**: `syncVpsFromHostinger` action fetches VMs from Hostinger API.
+- **Gateway discovery**: `/api/admin/scan-vps` SSHes into VPS, discovers OpenClaw instances (processes, Docker containers, docker-compose).
+- **Gateway instances**: OpenClaw runtime instances on VPS, tracked with port, token, status, agent count.
+- **Org VPS access**: assign VPS to orgs with instance quotas.
+
+### 8) Deployment lifecycle
+- **Create deployment**: allocates port, generates config, tracks provisioning steps.
+- **Step tracking**: real-time updates via Convex mutations (pending → running → success/failed).
+- **SSH provisioning**: `POST /api/org/provision-gateway` deploys via SSH to target VPS.
+
+### 9) Knowledge + documents
+- **Knowledge base**: org-scoped entries with full-text search via Convex search indexes.
+- **Proposals**: agents propose knowledge entries (Bearer token auth), org admins approve/reject.
+- **Documents**: org-scoped with types, tags, full-text search, optional file attachments via Convex storage.
+
+### 10) Task control plane (Beads)
+- **UI boundary**: `/control-plane` page fetches from `/api/task-control-plane`.
+- **Server boundary**: runs Beads CLI (`br`) locally or via SSH, parses JSON output.
+- **Read model**: converts raw Beads lists into Kanban board snapshot.
 
 ## Cross-cutting concerns
-- **Configuration**: environment variables are read directly from `process.env` (for example `NEXT_PUBLIC_GATEWAY_URL` for client defaults, `NEXT_PUBLIC_CONVEX_URL` for Convex deployment, and `STUDIO_UPSTREAM_GATEWAY_URL`/`STUDIO_UPSTREAM_GATEWAY_TOKEN` for server overrides). `lib/clawdbot/paths.ts` resolves config path/state dirs, honoring `OPENCLAW_STATE_DIR`/`OPENCLAW_CONFIG_PATH` and legacy fallbacks. Studio settings live under `<state dir>/openclaw-studio/settings.json`. When Studio token is missing, settings loaders can fall back to token/port from `<state dir>/openclaw.json`. Loopback-IP gateway URLs are normalized to `localhost` in Studio settings, and the WS proxy rewrites loopback upstream origins to `localhost` for control-UI secure-context compatibility. Convex deployment config lives in `.env.local` (`CONVEX_DEPLOYMENT` + `NEXT_PUBLIC_CONVEX_URL`).
-- **Logging**: API routes and the gateway client use built-in `console.*` logging.
-- **Error handling**:
-  - API routes return JSON `{ error }` with appropriate status.
-  - `fetchJson` throws when `!res.ok`, surfaces errors to UI state.
-  - `StudioSettingsCoordinator` logs failed async persistence writes (debounced flush or queued patch failures) so settings-save errors are observable.
-  - Gateway connect errors use a structured `GatewayErrorInfo` type (`message`, `code`, `section`, `guidance`) that preserves the original error code from the server proxy (`GatewayResponseError`) through the WebSocket close cycle. Errors are scoped to `"local"` or `"remote"` sections and rendered only in the matching UI section. Known error codes (e.g. `studio.upstream_error`, `studio.gateway_token_missing`, auth failures) map to human-readable messages with actionable guidance text.
-  - Gateway connect failures with `INVALID_REQUEST: invalid config` surface a doctor hint in Studio (`npx openclaw doctor --fix` / `pnpm openclaw doctor --fix`).
-  - Gateway browser client truncates close reasons to WebSocket protocol limits (123 UTF-8 bytes) to avoid client-side close exceptions on long error messages. The structured error is preserved via a `lastConnectError` field on the client and passed through the `onClose` callback.
-  - Auto-retry on disconnect uses exponential backoff (2s base, 1.5x factor, 30s cap, max 20 attempts). Retry state (`attempt`/`max`) is exposed to the UI with an interactive stop control. The `stopRetrying` callback clears the retry timer and prevents further auto-retries; clicking Connect after stopping resets the cycle. Auth-like errors skip auto-retry entirely.
-- **Filesystem helpers**: server-only filesystem operations live at the API route boundaries. Home-scoped path autocomplete is implemented directly in `src/app/api/path-suggestions/route.ts`. These helpers are used for local settings and path suggestions, not for agent file edits.
+- **Authentication**: Convex Auth with password provider. Super admin role for system management. Org-based access with role checks. Bearer token auth for agent API endpoints. Optional `STUDIO_ACCESS_TOKEN` for server access gate.
+- **Authorization**: `requireAuth`, `requireSuperAdmin`, `requireOrgAccess` helpers in `convex/lib/authorization.ts`. Org access validates member role with superAdmin override.
+- **Multi-tenant isolation**: org-scoped data via `orgId` indexes across Convex tables. Plan-based feature gating. Resource quotas (maxAgents, maxVps, maxInstances).
+- **Configuration**: env vars (`NEXT_PUBLIC_GATEWAY_URL`, `NEXT_PUBLIC_CONVEX_URL`, `STUDIO_UPSTREAM_GATEWAY_URL`, `STUDIO_UPSTREAM_GATEWAY_TOKEN`, `STUDIO_ACCESS_TOKEN`). `lib/clawdbot/paths.ts` resolves config/state dirs. Convex deployment in `.env.local`.
+- **Sensitive data**: provider credentials and skill env values masked in list queries, revealed via dedicated mutations. System settings support sensitive flag.
+- **Logging**: API routes and gateway client use `console.*` logging.
+- **Error handling**: API routes return JSON `{ error }` with status codes. Gateway errors use `GatewayErrorInfo` type. Structured error classification for connect failures.
+- **Full-text search**: Convex search indexes on `knowledge.content` and `documents.content`, filtered by `orgId`.
+- **Cascading operations**: deleting a provider cascades to credentials + models. Deleting a skill cascades to instanceSkills + skillEnvValues.
 - **Tracing**: `src/instrumentation.ts` registers `@vercel/otel` for telemetry.
-- **Validation**: request payload validation in API routes and typed client/server helpers in `src/lib/*`.
 
 ## Major design decisions & trade-offs
-- **Convex for structured persistence, local settings file for UI preferences**: Convex provides reactive, real-time persistence for data that needs to survive beyond gateway sessions. Local settings file remains for gateway connection + focused preferences (fast, local-first). Trade-off is two persistence layers, but they serve distinct purposes.
-- **Local settings file over DB for UI preferences**: fast, local-first persistence for gateway connection + focused preferences; trade-off is no concurrency or multi-user support.
-- **Same-origin WS proxy instead of direct browser->gateway WS**: allows server-side token custody/injection and easier local/remote switching; trade-off is one extra hop and custom-server ownership.
-- **Gateway-first agent records**: records map 1:1 to `agents.list` entries with main sessions; trade-off is no local-only agent concept.
-- **Gateway-backed config + agent-file edits**: create/rename/heartbeat/delete via `config.patch`, agent files via gateway WebSocket `agents.files.get`/`agents.files.set`; trade-off is reliance on gateway availability.
-- **Narrow local config mutation boundary**: Studio does not write `openclaw.json` directly today; if a local-only integration is introduced, keep any local writes narrowly scoped to that integration and reuse shared list helpers instead of ad-hoc mutation paths; trade-off is less flexibility for local-only experimentation, but clearer ownership and lower drift risk.
-- **Shared `agents.list` helper layer**: gateway and local config paths now consume one pure helper module for list parsing/writing/upsert behavior; trade-off is one more shared dependency, but it reduces semantic drift and duplicate bug surface.
-- **Single gateway settings endpoint**: `/api/studio` is the sole Studio gateway URL/token source; trade-off is migration pressure on any older local-config-based callers, but it removes ambiguous ownership and dead paths.
-- **Shared client settings coordinator module**: `src/lib/studio/coordinator.ts` now owns `/api/studio` transport plus load/schedule/flush behavior for gateway + focused state; trade-off is introducing a central client singleton, but it removes wrapper indirection and duplicate timers/fetch paths.
-- **Vendored gateway client + sync script**: reduces drift from upstream OpenClaw UI; trade-off is maintaining a sync path and local copies of upstream helpers.
+- **Convex as primary persistence, local settings file for UI preferences**: Convex provides reactive, real-time persistence for structured platform data. Local settings file remains for gateway connection + focused preferences (fast, local-first). Two persistence layers serve distinct purposes.
+- **Multi-tenant with Convex**: organizations, roles, and quotas enable platform use without requiring per-tenant database instances. Trade-off is org-scoped index filtering on queries.
+- **Skill metadata extraction from content**: skills declare env requirements and dependencies in SKILL.md frontmatter metadata JSON and body patterns. Extraction logic handles multiple formats (structured YAML, comma-separated, metadata JSON, body scanning). Trade-off is heuristic-based parsing.
+- **Same-origin WS proxy instead of direct browser->gateway WS**: allows server-side token custody/injection and easier local/remote switching.
+- **Gateway-first agent records**: records map 1:1 to `agents.list` entries with main sessions.
+- **Gateway-backed config + agent-file edits**: create/rename/heartbeat/delete via `config.patch`, files via gateway WebSocket.
+- **Dynamic model catalog sync**: models are fetched from provider APIs rather than hardcoded. Trade-off is API dependency for catalog updates, but ensures accuracy.
+- **SSH-based VPS operations**: discovery, provisioning, and agent state management via SSH. Trade-off is SSH key management complexity, but enables remote infrastructure control.
+- **Deployment step tracking**: real-time step updates via Convex mutations during provisioning. Trade-off is more granular mutation calls, but provides visibility.
+- **Knowledge proposal workflow**: agents propose, humans approve. Trade-off is friction for knowledge creation, but ensures quality control.
 - **Feature-first organization**: increases cohesion in UI; trade-off is more discipline to keep shared logic in `lib`.
-- **Node runtime for API routes**: required for filesystem access and tool proxying; trade-off is Node-only server runtime.
-- **Event-driven summaries + on-demand history**: keeps the dashboard lightweight; trade-off is history not being available until requested.
-- **Single runtime event bridge for chat+agent streams**: one listener path in `src/app/page.tsx` now routes runtime frames through pure bridge helpers (`src/features/agents/state/runtimeEventBridge.ts`), including summary patch extraction that previously lived in a separate module; trade-off is a denser bridge contract, but lower divergence risk across lifecycle cleanup/state transitions.
-- **Single gateway event intake subscription**: one `client.onEvent` path now handles both summary-refresh events (`presence`/`heartbeat`) and runtime stream events (`chat`/`agent`) using bridge classification helpers; trade-off is a larger callback surface, but fewer lifecycle and cleanup divergence points.
-- **Shared session-setting mutation path**: model and thinking-level updates now pass through one UI mutation helper plus one gateway sync helper (`src/features/agents/state/sessionSettingsMutations.ts` + `src/lib/gateway/GatewayClient.ts`), reducing divergence between optimistic state and remote patch flows.
 
 ## Mermaid diagrams
 ### C4 Level 1 (System Context)
 ```mermaid
 C4Context
   title OpenClaw Studio - System Context
-  Person(user, "User", "Operates agents locally")
+  Person(user, "User", "Manages agents and platform")
+  Person(admin, "Super Admin", "Manages platform resources")
   System(ui, "OpenClaw Studio", "Next.js App Router UI")
   System(proxy, "Studio WS Proxy", "Custom server /api/gateway/ws")
   System_Ext(gateway, "OpenClaw Gateway", "WebSocket runtime")
   System_Ext(convex, "Convex", "Reactive database")
-  System_Ext(fs, "Local Filesystem", "settings.json and other local reads (e.g. path suggestions)")
+  System_Ext(fs, "Local Filesystem", "settings.json")
+  System_Ext(hostinger, "Hostinger API", "VPS provisioning")
+  System_Ext(providers, "AI Provider APIs", "Anthropic, OpenAI, Google, etc.")
 
   Rel(user, ui, "Uses")
+  Rel(admin, ui, "Manages via /admin")
   Rel(ui, proxy, "WebSocket frames")
   Rel(proxy, gateway, "WebSocket frames")
   Rel(ui, convex, "Real-time queries/mutations")
   Rel(ui, fs, "HTTP to API routes -> fs read/write")
+  Rel(ui, hostinger, "VPS sync")
+  Rel(ui, providers, "Model catalog sync, API key testing")
 ```
 
 ### C4 Level 2 (Containers/Components)
@@ -170,24 +257,29 @@ C4Context
 C4Container
   title OpenClaw Studio - Containers
   Person(user, "User")
+  Person(admin, "Super Admin")
 
   Container_Boundary(app, "Next.js App") {
-    Container(client, "Client UI", "React", "Focused agent-management UI, state, gateway client, Convex hooks")
-    Container(api, "API Routes", "Next.js route handlers", "Studio settings, path suggestions, task control plane")
-    Container(proxy, "WS Proxy", "Custom Node server", "Bridges /api/gateway/ws to upstream gateway with token injection")
+    Container(client, "Client UI", "React", "Agent management, admin panel, knowledge, documents")
+    Container(api, "API Routes", "Next.js route handlers", "Studio settings, provisioning, scanning, skills import, SSH keys")
+    Container(proxy, "WS Proxy", "Custom Node server", "Bridges /api/gateway/ws to upstream gateway")
   }
 
   Container_Ext(gateway, "Gateway", "WebSocket", "Agent runtime")
-  Container_Ext(convex, "Convex", "WebSocket", "Reactive database with server functions")
-  Container_Ext(fs, "Filesystem", "Local", "settings.json and other local reads (e.g. path suggestions)")
+  Container_Ext(convex, "Convex", "WebSocket", "21 tables, queries, mutations, actions, auth")
+  Container_Ext(fs, "Filesystem", "Local", "settings.json")
+  Container_Ext(hostinger, "Hostinger", "REST API", "VPS management")
+  Container_Ext(providers, "AI Providers", "REST APIs", "Model catalogs")
 
   Rel(user, client, "Uses")
+  Rel(admin, client, "Manages via /admin")
   Rel(client, api, "HTTP JSON")
   Rel(client, proxy, "WebSocket /api/gateway/ws")
   Rel(client, convex, "WebSocket (real-time queries/mutations)")
   Rel(proxy, gateway, "WebSocket")
   Rel(api, fs, "Read/Write")
-  Rel(proxy, fs, "Read settings/token")
+  Rel(api, hostinger, "REST API")
+  Rel(convex, providers, "REST API (actions)")
 ```
 
 ## Explicit forbidden patterns
@@ -196,13 +288,16 @@ C4Container
 - Do not write agent rename/heartbeat data directly to `openclaw.json`; use gateway `config.patch`.
 - Do not read/write agent files on the local filesystem; use the gateway tools proxy.
 - Do not add parallel gateway settings endpoints; `/api/studio` is the only supported Studio gateway URL/token path.
-- Do not add new generic local `openclaw.json` mutation wrappers for runtime agent-management flows; if a local-only integration is introduced, keep any local writes narrowly scoped and well tested.
 - Do not store gateway tokens or secrets in client-side persistent storage.
 - Do not add new global mutable state outside `AgentStoreProvider` for agent UI data.
 - Do not silently swallow errors in API routes; always return actionable errors.
 - Do not add heavy abstractions or frameworks unless there is clear evidence of need.
+- Do not bypass Convex auth helpers (`requireAuth`, `requireSuperAdmin`, `requireOrgAccess`) in server functions.
+- Do not store sensitive values unmasked in Convex query responses; use dedicated reveal mutations.
+- Do not allow skill assignment without validating required env key configuration.
 
 ## Future-proofing notes
-- If multi-user support becomes a goal, replace the settings file with a DB-backed service and introduce authentication at the API boundary.
+- Convex is currently on the free tier. When self-hosting becomes a goal, the schema and functions remain the same — only the deployment target changes.
 - If gateway protocol evolves, isolate changes within `src/lib/gateway` and keep UI call sites stable.
-- Convex is currently on the free tier. When self-hosting becomes a goal, the schema and functions in `convex/` remain the same — only the deployment target changes (`CONVEX_SELF_HOSTED_URL` replaces `NEXT_PUBLIC_CONVEX_URL`).
+- Provider credentials system is designed for per-org scoping but currently primarily uses system-level keys.
+- Deployment provisioning is SSH-based; container orchestration (Kubernetes) could be added as an alternative provisioner.
