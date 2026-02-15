@@ -64,6 +64,7 @@ export const getSessionContext = query({
         port: number;
         sshUser: string;
         sshPort: number;
+        agentCount: number;
       }>;
     } | null = null;
 
@@ -93,6 +94,7 @@ export const getSessionContext = query({
           port: inst.port,
           sshUser: vps.sshUser ?? "root",
           sshPort: vps.sshPort ?? 22,
+          agentCount: inst.agentCount ?? 1,
         });
       }
 

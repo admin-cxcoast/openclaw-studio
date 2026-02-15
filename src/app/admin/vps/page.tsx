@@ -468,7 +468,7 @@ function ScanResultsPanel({
       await createInstance({
         vpsId,
         orgId: selectedOrg as Id<"organizations">,
-        name: `${vpsHostname}-${result.port}`,
+        name: result.containerName ?? primaryAgentName ?? `instance-${result.port}`,
         port: result.port,
         token: result.token ?? undefined,
         stateDir: result.stateDir ?? undefined,
@@ -500,6 +500,7 @@ function ScanResultsPanel({
         : undefined;
       await updateInstance({
         id: instId,
+        name: result.containerName ?? primaryAgentName ?? undefined,
         status: "running",
         agentCount: result.agentCount ?? 0,
         token: result.token ?? undefined,

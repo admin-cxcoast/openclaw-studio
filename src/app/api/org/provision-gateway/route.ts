@@ -446,7 +446,7 @@ export async function POST(req: NextRequest) {
           stateDir: iDir,
           status: "running",
           agentCount: 1,
-          primaryAgentName: dep.instanceName,
+          primaryAgentName: dep.config.agentIdentity?.name ?? dep.instanceName,
         },
       );
 

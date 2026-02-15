@@ -69,6 +69,7 @@ def read_config_from_docker(container_id):
     """Read openclaw.json from inside a Docker container."""
     # Try common config paths inside the container
     for cfg_path in [
+        "/home/node/.openclaw/openclaw.json",
         "/root/.openclaw/openclaw.json",
         "/home/openclaw/.openclaw/openclaw.json",
         "/app/openclaw.json",
@@ -83,14 +84,25 @@ def read_config_from_docker(container_id):
                 port = gateway.get("port")
                 auth = gateway.get("auth", {})
                 token = auth.get("token")
-                return {"port": port, "token": token, "configPath": cfg_path}
+                # Extract registered agents from config
+                agents_cfg = config.get("agents", {})
+                agent_list = agents_cfg.get("list", []) if isinstance(agents_cfg, dict) else []
+                agent_ids = [a.get("id") for a in agent_list if isinstance(a, dict) and a.get("id")]
+                return {"port": port, "token": token, "configPath": cfg_path, "agentIds": agent_ids}
             except Exception:
                 continue
     return None
 
-def list_agents_docker(container_id):
-    """List agent directory names inside a Docker container."""
+def list_agents_docker(container_id, cfg=None):
+    """List registered agents from a Docker container.
+    Uses the agents list from openclaw.json config (source of truth).
+    Falls back to filesystem scan only if config has no agent list."""
+    # Prefer config-based list — matches what the gateway actually knows about
+    if cfg and cfg.get("agentIds"):
+        return cfg["agentIds"]
+    # Fallback: filesystem scan inside container
     for agents_dir in [
+        "/home/node/.openclaw/agents",
         "/root/.openclaw/agents",
         "/home/openclaw/.openclaw/agents",
         "/opt/openclaw/agents",
@@ -218,7 +230,7 @@ if docker_available:
         if not effective_port:
             continue
 
-        agents = list_agents_docker(cid)
+        agents = list_agents_docker(cid, cfg)
 
         results.append({
             "stateDir": f"docker:{name}",

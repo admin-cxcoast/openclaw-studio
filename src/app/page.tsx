@@ -209,7 +209,7 @@ const AgentStudioPage = ({
 }: {
   gatewayOverride?: GatewayOverride | null;
   userContext?: { name: string; orgName: string; orgRole?: string; onSignOut: () => void } | null;
-  gatewayTabs?: Array<{ instanceId: string; primaryAgentName: string | null; port: number; status: string }>;
+  gatewayTabs?: Array<{ instanceId: string; name: string; primaryAgentName: string | null; port: number; status: string; agentCount?: number }>;
   activeGatewayIdx?: number;
   onGatewaySelect?: (idx: number) => void;
   orgId?: string;
@@ -1967,9 +1967,6 @@ const AgentStudioPage = ({
             brainDisabled={!hasAnyAgents}
             showConnectionSettings={!gatewayOverride}
             userContext={userContext}
-            gatewayTabs={gatewayTabs}
-            activeGatewayIdx={activeGatewayIdx}
-            onGatewaySelect={onGatewaySelect}
           />
         </div>
 
@@ -2121,6 +2118,9 @@ const AgentStudioPage = ({
               onDeployInstance={() => setShowDeployModal(true)}
               deployDisabled={!orgId}
               isAdmin={orgRole === "owner" || orgRole === "admin"}
+              gatewayTabs={gatewayTabs}
+              activeGatewayIdx={activeGatewayIdx}
+              onGatewaySelect={onGatewaySelect}
             />
           </div>
           <div
@@ -2478,9 +2478,11 @@ function AuthGate() {
   const gatewayTabs = gateways.length > 1
     ? gateways.map((gw) => ({
         instanceId: gw.instanceId,
+        name: gw.name,
         primaryAgentName: gw.primaryAgentName,
         port: gw.port,
         status: gw.status,
+        agentCount: gw.agentCount ?? 1,
       }))
     : undefined;
 
